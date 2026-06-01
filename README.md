@@ -27,3 +27,8 @@ I wanted a simple and modern golf scoring app that allows multiple players to ke
 ## Status
 
 Currently in Development.
+
+## Screenshot
+
+![BlackShell Golf](assets/screenshots/home.png)
+
