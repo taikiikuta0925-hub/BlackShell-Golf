@@ -1,17 +1,29 @@
-# blackshell_golf
+# BlackShell Golf
 
-A new Flutter project.
+BlackShell Golf is a multiplayer golf scoring app built with Flutter.
 
-## Getting Started
+##Features
 
-This project is a starting point for a Flutter application.
+- Create and join golf scoring rooms
+- Track scores across multiple players
+- Support for multiple players
+- Clean and modern user interface
+- Cross-platform support with Flutter
 
-A few resources to get you started if this is your first Flutter project:
+## Why I Built This
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+I wanted a simple and modern golf scoring app that allows multiple players to keep
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## Built With
+
+- Flutter
+- Dart
+
+## Future Plans
+
+- GPS integration
+- ios and Android releases
+
+## Status
+
+Currently in Development.
