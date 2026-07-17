@@ -26,7 +26,7 @@ I wanted a simple and modern golf scoring app that allows multiple players to ke
 
 ## Status
 
-Currently in Development.
+Stopped
 
 ## Screenshot
 
