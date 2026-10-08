@@ -43,3 +43,27 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Local captures and build review artifacts
+/artifacts/
+
+# Secrets, Cloudflare local state, and signing material
+.env
+.env.*
+!.env.example
+**/.dev.vars
+**/.dev.vars.*
+**/.wrangler/
+*.cer
+*.pem
+*.key
+*.keystore
+*.jks
+*.mobileprovision
+*.provisionprofile
+*.p8
+*.p12
+*.xcresult
+*.xcarchive
+*.ipa
+android/key.properties

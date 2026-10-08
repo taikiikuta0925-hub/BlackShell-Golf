@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Flutter and Worker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.41.9
+          channel: stable
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Resolve Flutter packages
+        run: flutter pub get
+      - name: Analyze Flutter code
+        run: flutter analyze
+      - name: Run Flutter tests
+        run: flutter test
+      - name: Run Worker tests
+        run: node --test backend/gemini-worker.test.js
+
+  apple-build:
+    name: Runner, Watch, and Live Activity
+    needs: quality
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.41.9
+          channel: stable
+          cache: true
+      - name: Resolve Flutter packages
+        run: flutter pub get
+      - name: Install CocoaPods dependencies
+        working-directory: ios
+        run: pod install
+      - name: Build Apple targets
+        run: >-
+          xcodebuild
+          -workspace ios/Runner.xcworkspace
+          -scheme Runner
+          -configuration Debug
+          -destination 'platform=iOS Simulator,name=iPhone 18 Pro,OS=27.0'
+          CODE_SIGNING_ALLOWED=NO
+          build

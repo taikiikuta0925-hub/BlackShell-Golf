@@ -1,14 +1,25 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:path_provider/path_provider.dart';
+
+import 'features/apple_sync/apple_fitness_sync.dart';
+import 'features/apple_sync/apple_round_sync.dart';
+import 'features/shot_analysis/cloudflare_golf_video_analyzer.dart';
+import 'features/shot_analysis/image_picker_video_source.dart';
+import 'features/shot_analysis/shot_analysis_screen.dart';
+import 'ui/liquid_glass.dart';
+import 'ui/liquid_glass_tab_bar.dart';
 
 void main() {
   runApp(const BlackShellGolfApp());
 }
 
-enum AppLanguage { english, japanese }
+enum AppLanguage { system, english, japanese }
 
 class AppSettingsScope extends InheritedWidget {
   const AppSettingsScope({
@@ -43,8 +54,8 @@ class BlackShellGolfApp extends StatefulWidget {
 }
 
 class _BlackShellGolfAppState extends State<BlackShellGolfApp> {
-  ThemeMode _themeMode = ThemeMode.dark;
-  AppLanguage _language = AppLanguage.english;
+  ThemeMode _themeMode = ThemeMode.system;
+  AppLanguage _language = AppLanguage.system;
 
   @override
   Widget build(BuildContext context) {
@@ -56,8 +67,15 @@ class _BlackShellGolfAppState extends State<BlackShellGolfApp> {
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
         title: 'BlackShell Golf',
-        theme: ThemeData.light(useMaterial3: true),
-        darkTheme: ThemeData.dark(useMaterial3: true),
+        locale: switch (_language) {
+          AppLanguage.system => null,
+          AppLanguage.english => const Locale('en'),
+          AppLanguage.japanese => const Locale('ja'),
+        },
+        supportedLocales: const [Locale('en'), Locale('ja')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        theme: buildLiquidGlassTheme(Brightness.light),
+        darkTheme: buildLiquidGlassTheme(Brightness.dark),
         themeMode: _themeMode,
         home: const HomePage(),
       ),
@@ -66,24 +84,20 @@ class _BlackShellGolfAppState extends State<BlackShellGolfApp> {
 }
 
 String tr(BuildContext context, String english, String japanese) {
-  return AppSettingsScope.of(context).language == AppLanguage.japanese
-      ? japanese
-      : english;
+  return isJapanese(context) ? japanese : english;
 }
 
 bool isJapanese(BuildContext context) {
-  return AppSettingsScope.of(context).language == AppLanguage.japanese;
-}
-
-Color appBackgroundColor(BuildContext context) {
-  final settings = AppSettingsScope.of(context);
-  return settings.themeMode == ThemeMode.light
-      ? const Color(0xFFF4F7F3)
-      : const Color(0xFF0D0D0D);
+  return switch (AppSettingsScope.of(context).language) {
+    AppLanguage.japanese => true,
+    AppLanguage.english => false,
+    AppLanguage.system =>
+      Localizations.localeOf(context).languageCode.toLowerCase() == 'ja',
+  };
 }
 
 bool isLightMode(BuildContext context) {
-  return AppSettingsScope.of(context).themeMode == ThemeMode.light;
+  return Theme.of(context).brightness == Brightness.light;
 }
 
 Color primaryTextColor(BuildContext context) {
@@ -96,166 +110,254 @@ Color secondaryTextColor(BuildContext context) {
       : Colors.white.withValues(alpha: 0.62);
 }
 
+Color appAccentColor(BuildContext context) {
+  return isLightMode(context) ? const Color(0xFF007A45) : Colors.greenAccent;
+}
+
 Color fieldFillColor(BuildContext context) {
   return isLightMode(context)
-      ? const Color(0xFFE5EFE8)
-      : Colors.white.withValues(alpha: 0.04);
+      ? Colors.white.withValues(alpha: 0.56)
+      : Colors.white.withValues(alpha: 0.075);
 }
 
 Color panelFillColor(BuildContext context) {
   return isLightMode(context)
-      ? Colors.white.withValues(alpha: 0.72)
-      : Colors.white.withValues(alpha: 0.07);
+      ? Colors.white.withValues(alpha: 0.64)
+      : Colors.white.withValues(alpha: 0.085);
 }
 
 Color panelBorderColor(BuildContext context) {
   return isLightMode(context)
-      ? const Color(0xFFB8D3C2)
-      : Colors.white.withValues(alpha: 0.12);
+      ? Colors.white.withValues(alpha: 0.82)
+      : Colors.white.withValues(alpha: 0.18);
 }
 
-class HomePage extends StatelessWidget {
-  const HomePage({super.key});
+PreferredSizeWidget _liquidAppBar(
+  BuildContext context,
+  String title, {
+  List<Widget>? actions,
+  bool useGlass = true,
+}) {
+  final overlayStyle = isLightMode(context)
+      ? SystemUiOverlayStyle.dark
+      : SystemUiOverlayStyle.light;
+  return AppBar(
+    backgroundColor: Colors.transparent,
+    foregroundColor: primaryTextColor(context),
+    surfaceTintColor: Colors.transparent,
+    shadowColor: Colors.transparent,
+    elevation: 0,
+    scrolledUnderElevation: 0,
+    systemOverlayStyle: overlayStyle.copyWith(
+      statusBarColor: Colors.transparent,
+    ),
+    flexibleSpace: useGlass ? const LiquidGlassAppBarBackground() : null,
+    title: Text(title),
+    actions: actions,
+  );
+}
+
+class _GlassPage extends StatelessWidget {
+  const _GlassPage({required this.body, this.appBar, this.bottomNavigationBar});
+
+  final Widget body;
+  final PreferredSizeWidget? appBar;
+  final Widget? bottomNavigationBar;
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: appBackgroundColor(context),
-      body: SafeArea(
-        child: Stack(
-          children: [
-            Positioned(
-              top: 12,
-              right: 12,
-              child: IconButton(
-                key: const Key('settingsButton'),
-                tooltip: tr(context, 'Settings', '設定'),
-                onPressed: () => _showSettingsSheet(context),
-                icon: const Icon(Icons.settings),
-                color: Colors.greenAccent,
-                style: IconButton.styleFrom(
-                  backgroundColor: Colors.white.withValues(alpha: 0.08),
-                ),
-              ),
-            ),
-            Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Image.asset(
-                    AppSettingsScope.of(context).themeMode == ThemeMode.light
-                        ? 'assets/logolight.png'
-                        : 'assets/logo.png',
-                    key: const Key('homeLogo'),
-                    width: 520,
-                    fit: BoxFit.contain,
-                    semanticLabel: 'BlackShell Golf',
-                    errorBuilder: (context, error, stackTrace) {
-                      return Text(
-                        'BlackShell Golf',
-                        style: TextStyle(
-                          fontSize: 42,
-                          fontWeight: FontWeight.bold,
-                          color: Theme.of(context).colorScheme.onSurface,
-                        ),
-                      );
-                    },
-                  ),
+    final brightness = Theme.of(context).brightness;
+    final iconBrightness = brightness == Brightness.light
+        ? Brightness.dark
+        : Brightness.light;
 
-                  const SizedBox(height: 20),
-
-                  Text(
-                    tr(context, 'Live Multiplayer Golf Scoring', 'ライブ対応ゴルフスコア'),
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.onSurface.withValues(alpha: 0.62),
-                    ),
-                  ),
-
-                  const SizedBox(height: 50),
-
-                  ElevatedButton(
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const PlayerSetupPage(),
-                        ),
-                      );
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.greenAccent,
-                      foregroundColor: Colors.black,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 40,
-                        vertical: 20,
-                      ),
-                    ),
-                    child: Text(
-                      tr(context, 'Create Room', 'ルーム作成'),
-                      style: const TextStyle(fontSize: 20),
-                    ),
-                  ),
-
-                  const SizedBox(height: 20),
-
-                  OutlinedButton(
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            tr(context, 'Join Room Coming Soon', 'ルーム参加は準備中です'),
-                          ),
-                        ),
-                      );
-                    },
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Theme.of(context).colorScheme.onSurface,
-                      side: BorderSide(
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.onSurface.withValues(alpha: 0.24),
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 40,
-                        vertical: 20,
-                      ),
-                    ),
-                    child: Text(
-                      tr(context, 'Join Room', 'ルーム参加'),
-                      style: const TextStyle(fontSize: 20),
-                    ),
-                  ),
-
-                  const SizedBox(height: 20),
-
-                  TextButton(
-                    key: const Key('pastRoundsButton'),
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const PastRoundsPage(),
-                        ),
-                      );
-                    },
-                    style: TextButton.styleFrom(
-                      foregroundColor: Theme.of(
-                        context,
-                      ).colorScheme.onSurface.withValues(alpha: 0.72),
-                    ),
-                    child: Text(
-                      tr(context, 'Past Rounds', '過去のラウンド'),
-                      style: const TextStyle(fontSize: 18),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarBrightness: brightness,
+        statusBarIconBrightness: iconBrightness,
+      ),
+      child: LiquidGlassBackdrop(
+        child: Scaffold(
+          extendBody: bottomNavigationBar != null,
+          backgroundColor: Colors.transparent,
+          appBar: appBar,
+          body: body,
+          bottomNavigationBar: bottomNavigationBar,
         ),
+      ),
+    );
+  }
+}
+
+class HomePage extends StatefulWidget {
+  const HomePage({super.key});
+
+  @override
+  State<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
+  late int _selectedTab;
+  int _dataVersion = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedTab = _debugInitialTab();
+    const isProduct = bool.fromEnvironment('dart.vm.product');
+    const openSampleRound = bool.fromEnvironment('BLACKSHELL_SAMPLE_ROUND');
+    if (!isProduct && openSampleRound) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        unawaited(
+          Navigator.of(context).push<void>(
+            MaterialPageRoute<void>(
+              builder: (context) => ScorePage(
+                players: const ['Demo Player', 'Guest'],
+                holes: 9,
+                course: GolfzonCourseCatalog.courses.first,
+              ),
+            ),
+          ),
+        );
+      });
+    }
+  }
+
+  int _debugInitialTab() {
+    if (const bool.fromEnvironment('dart.vm.product')) {
+      return 0;
+    }
+    const names = ['home', 'courses', 'rounds', 'clubs', 'ai'];
+    const configuredTab = String.fromEnvironment('BLACKSHELL_INITIAL_TAB');
+    final configuredIndex = names.indexOf(configuredTab);
+    if (configuredIndex >= 0) {
+      return configuredIndex;
+    }
+    final environmentTab = Platform.environment['BLACKSHELL_TAB'];
+    if (environmentTab != null) {
+      final index = names.indexOf(environmentTab);
+      if (index >= 0) {
+        return index;
+      }
+    }
+    for (final argument in Platform.executableArguments) {
+      const prefix = '--blackshell-tab=';
+      if (argument.startsWith(prefix)) {
+        final index = names.indexOf(argument.substring(prefix.length));
+        if (index >= 0) {
+          return index;
+        }
+      }
+    }
+    return 0;
+  }
+
+  Future<void> _openRoundSetup([GolfCourse? course]) async {
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => PlayerSetupPage(initialCourse: course),
+      ),
+    );
+    if (mounted) {
+      setState(() => _dataVersion++);
+    }
+  }
+
+  Future<void> _openShotAnalysis() async {
+    final analyzer = CloudflareGolfVideoAnalyzer();
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (routeContext) => ShotAnalysisScreen(
+          videoSource: ImagePickerVideoSource(),
+          analyzer: analyzer,
+          languageCode: isJapanese(context) ? 'ja' : 'en',
+          translate: (english, japanese) => tr(context, english, japanese),
+          closeAnalyzerOnDispose: true,
+        ),
+      ),
+    );
+  }
+
+  void _selectTab(int index) {
+    setState(() {
+      _selectedTab = index;
+      if (index == 0 || index == 2) {
+        _dataVersion++;
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final destinations = [
+      LiquidGlassTabDestination(
+        label: tr(context, 'Home', 'ホーム'),
+        sfSymbol: 'house.fill',
+        accessibilityIdentifier: 'homeTabButton',
+        icon: Icons.home_outlined,
+        selectedIcon: Icons.home,
+      ),
+      LiquidGlassTabDestination(
+        label: tr(context, 'Courses', 'コース'),
+        sfSymbol: 'map.fill',
+        accessibilityIdentifier: 'coursesTabButton',
+        icon: Icons.map_outlined,
+        selectedIcon: Icons.map,
+      ),
+      LiquidGlassTabDestination(
+        label: tr(context, 'Rounds', '履歴'),
+        sfSymbol: 'clock.arrow.circlepath',
+        accessibilityIdentifier: 'roundsTabButton',
+        icon: Icons.history,
+        selectedIcon: Icons.history,
+      ),
+      LiquidGlassTabDestination(
+        label: tr(context, 'Bag', 'クラブ'),
+        sfSymbol: 'backpack.fill',
+        accessibilityIdentifier: 'clubsTabButton',
+        icon: Icons.backpack_outlined,
+        selectedIcon: Icons.backpack,
+      ),
+      LiquidGlassTabDestination(
+        label: 'AI',
+        sfSymbol: 'sparkles',
+        accessibilityIdentifier: 'aiTabButton',
+        icon: Icons.auto_awesome_outlined,
+        selectedIcon: Icons.auto_awesome,
+      ),
+    ];
+
+    return _GlassPage(
+      body: IndexedStack(
+        index: _selectedTab,
+        children: [
+          _HomeDashboard(
+            key: ValueKey('dashboard-$_dataVersion'),
+            onStartRound: _openRoundSetup,
+            onOpenCourses: () => _selectTab(1),
+            onOpenHistory: () => _selectTab(2),
+            onOpenAI: () => _selectTab(4),
+            onOpenSettings: () => _showSettingsSheet(context),
+          ),
+          GolfCoursePickerPage(
+            embedded: true,
+            onCourseSelected: _openRoundSetup,
+          ),
+          PastRoundsPage(key: ValueKey('rounds-$_dataVersion'), embedded: true),
+          const _ClubBagPage(),
+          _AiHubPage(onOpenAnalysis: _openShotAnalysis),
+        ],
+      ),
+      bottomNavigationBar: LiquidGlassTabBar(
+        destinations: destinations,
+        selectedIndex: _selectedTab,
+        onDestinationSelected: _selectTab,
       ),
     );
   }
@@ -265,59 +367,95 @@ class HomePage extends StatelessWidget {
 
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      showDragHandle: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: 0.32),
+      showDragHandle: false,
       builder: (context) {
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(24, 8, 24, 28),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                tr(context, 'Settings', '設定'),
-                style: const TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
+        return SafeArea(
+          top: false,
+          minimum: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+          child: LiquidGlassSurface(
+            padding: const EdgeInsets.fromLTRB(24, 12, 24, 28),
+            radius: 30,
+            prominent: true,
+            useNativeGlass: true,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Center(
+                  child: Container(
+                    width: 42,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: secondaryTextColor(
+                        context,
+                      ).withValues(alpha: 0.38),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 18),
-              Text(tr(context, 'Theme', 'テーマ')),
-              const SizedBox(height: 8),
-              SegmentedButton<ThemeMode>(
-                segments: [
-                  ButtonSegment(
-                    value: ThemeMode.dark,
-                    label: Text(tr(context, 'Dark', 'ダーク')),
-                    icon: const Icon(Icons.dark_mode),
+                const SizedBox(height: 14),
+                Text(
+                  tr(context, 'Settings', '設定'),
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
                   ),
-                  ButtonSegment(
-                    value: ThemeMode.light,
-                    label: Text(tr(context, 'Light', 'ライト')),
-                    icon: const Icon(Icons.light_mode),
-                  ),
-                ],
-                selected: {settings.themeMode},
-                onSelectionChanged: (selection) {
-                  settings.setThemeMode(selection.first);
-                  Navigator.pop(context);
-                },
-              ),
-              const SizedBox(height: 18),
-              Text(tr(context, 'Language', '言語')),
-              const SizedBox(height: 8),
-              SegmentedButton<AppLanguage>(
-                segments: const [
-                  ButtonSegment(value: AppLanguage.english, label: Text('EN')),
-                  ButtonSegment(value: AppLanguage.japanese, label: Text('JP')),
-                ],
-                selected: {settings.language},
-                onSelectionChanged: (selection) {
-                  settings.setLanguage(selection.first);
-                  Navigator.pop(context);
-                },
-              ),
-            ],
+                ),
+                const SizedBox(height: 18),
+                Text(tr(context, 'Theme', 'テーマ')),
+                const SizedBox(height: 8),
+                SegmentedButton<ThemeMode>(
+                  segments: [
+                    ButtonSegment(
+                      value: ThemeMode.system,
+                      label: Text(tr(context, 'System', 'システム')),
+                      icon: const Icon(Icons.brightness_auto),
+                    ),
+                    ButtonSegment(
+                      value: ThemeMode.dark,
+                      label: Text(tr(context, 'Dark', 'ダーク')),
+                      icon: const Icon(Icons.dark_mode),
+                    ),
+                    ButtonSegment(
+                      value: ThemeMode.light,
+                      label: Text(tr(context, 'Light', 'ライト')),
+                      icon: const Icon(Icons.light_mode),
+                    ),
+                  ],
+                  selected: {settings.themeMode},
+                  onSelectionChanged: (selection) {
+                    settings.setThemeMode(selection.first);
+                    Navigator.pop(context);
+                  },
+                ),
+                const SizedBox(height: 18),
+                Text(tr(context, 'Language', '言語')),
+                const SizedBox(height: 8),
+                SegmentedButton<AppLanguage>(
+                  segments: [
+                    ButtonSegment(
+                      value: AppLanguage.system,
+                      label: Text(tr(context, 'System', 'システム')),
+                    ),
+                    ButtonSegment(
+                      value: AppLanguage.english,
+                      label: const Text('EN'),
+                    ),
+                    ButtonSegment(
+                      value: AppLanguage.japanese,
+                      label: const Text('日本語'),
+                    ),
+                  ],
+                  selected: {settings.language},
+                  onSelectionChanged: (selection) {
+                    settings.setLanguage(selection.first);
+                    Navigator.pop(context);
+                  },
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -325,8 +463,966 @@ class HomePage extends StatelessWidget {
   }
 }
 
+class _HomeDashboard extends StatefulWidget {
+  const _HomeDashboard({
+    super.key,
+    required this.onStartRound,
+    required this.onOpenCourses,
+    required this.onOpenHistory,
+    required this.onOpenAI,
+    required this.onOpenSettings,
+  });
+
+  final VoidCallback onStartRound;
+  final VoidCallback onOpenCourses;
+  final VoidCallback onOpenHistory;
+  final VoidCallback onOpenAI;
+  final VoidCallback onOpenSettings;
+
+  @override
+  State<_HomeDashboard> createState() => _HomeDashboardState();
+}
+
+class _HomeDashboardState extends State<_HomeDashboard> {
+  late final Future<List<SavedRound>> _rounds = RoundStorage.loadRounds();
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      bottom: false,
+      child: FutureBuilder<List<SavedRound>>(
+        future: _rounds,
+        builder: (context, snapshot) {
+          final summary = _DashboardSummary.fromRounds(snapshot.data ?? []);
+          return CustomScrollView(
+            key: const PageStorageKey('homeDashboard'),
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 110),
+                sliver: SliverToBoxAdapter(
+                  child: Align(
+                    alignment: Alignment.topCenter,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 720),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _DashboardHeader(
+                            onOpenSettings: widget.onOpenSettings,
+                          ),
+                          const SizedBox(height: 26),
+                          Text(
+                            tr(context, 'Ready to play?', '次のラウンドへ'),
+                            style: TextStyle(
+                              color: primaryTextColor(context),
+                              fontSize: 32,
+                              height: 1.05,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: -0.8,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            tr(
+                              context,
+                              'Score live, keep your streak, and review every swing.',
+                              'スコア、連続記録、スイング解析をひとつに。',
+                            ),
+                            style: TextStyle(
+                              color: secondaryTextColor(context),
+                              fontSize: 15,
+                              height: 1.4,
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          LiquidGlassSurface(
+                            radius: 28,
+                            prominent: true,
+                            useNativeGlass: true,
+                            tint: appAccentColor(context),
+                            padding: const EdgeInsets.all(20),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Row(
+                                  children: [
+                                    Container(
+                                      width: 48,
+                                      height: 48,
+                                      decoration: BoxDecoration(
+                                        color: appAccentColor(
+                                          context,
+                                        ).withValues(alpha: 0.16),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: Icon(
+                                        Icons.sports_golf,
+                                        color: appAccentColor(context),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 14),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            tr(context, 'New round', '新しいラウンド'),
+                                            style: TextStyle(
+                                              color: primaryTextColor(context),
+                                              fontSize: 19,
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 3),
+                                          Text(
+                                            tr(
+                                              context,
+                                              'Set players, course, and holes',
+                                              'プレイヤー・コース・ホール数を設定',
+                                            ),
+                                            style: TextStyle(
+                                              color: secondaryTextColor(
+                                                context,
+                                              ),
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 18),
+                                ElevatedButton.icon(
+                                  key: const Key('createRoomButton'),
+                                  onPressed: widget.onStartRound,
+                                  icon: const Icon(Icons.flag),
+                                  label: Text(
+                                    tr(context, 'Create Room', 'ルーム作成'),
+                                    style: const TextStyle(
+                                      fontSize: 17,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: TextButton.icon(
+                                        onPressed: widget.onOpenCourses,
+                                        icon: const Icon(Icons.map_outlined),
+                                        label: Text(
+                                          tr(
+                                            context,
+                                            'Choose course',
+                                            'コースから選ぶ',
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: TextButton.icon(
+                                        onPressed: () {
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
+                                            SnackBar(
+                                              content: Text(
+                                                tr(
+                                                  context,
+                                                  'Join Room Coming Soon',
+                                                  'ルーム参加は準備中です',
+                                                ),
+                                              ),
+                                            ),
+                                          );
+                                        },
+                                        icon: const Icon(Icons.group_outlined),
+                                        label: Text(tr(context, 'Join', '参加')),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 18),
+                          _DashboardMetrics(summary: summary),
+                          const SizedBox(height: 18),
+                          if (summary.latest case final latest?)
+                            _RecentRoundCard(
+                              round: latest,
+                              onOpenHistory: widget.onOpenHistory,
+                            )
+                          else
+                            _EmptyHistoryCard(
+                              onOpenCourses: widget.onOpenCourses,
+                            ),
+                          const SizedBox(height: 14),
+                          _AiQuickCard(onTap: widget.onOpenAI),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _DashboardHeader extends StatelessWidget {
+  const _DashboardHeader({required this.onOpenSettings});
+
+  final VoidCallback onOpenSettings;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Image.asset(
+              isLightMode(context) ? 'assets/logolight.png' : 'assets/logo.png',
+              key: const Key('homeLogo'),
+              width: 190,
+              height: 68,
+              fit: BoxFit.contain,
+              alignment: Alignment.centerLeft,
+              semanticLabel: 'BlackShell Golf',
+              errorBuilder: (context, error, stackTrace) => Text(
+                'BLACKSHELL GOLF',
+                style: TextStyle(
+                  color: primaryTextColor(context),
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ),
+        ),
+        LiquidGlassSurface(
+          padding: EdgeInsets.zero,
+          radius: 24,
+          useNativeGlass: true,
+          interactive: true,
+          child: IconButton(
+            key: const Key('settingsButton'),
+            tooltip: tr(context, 'Settings', '設定'),
+            onPressed: onOpenSettings,
+            icon: const Icon(Icons.tune),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DashboardSummary {
+  const _DashboardSummary({
+    required this.roundCount,
+    required this.weeklyStreak,
+    required this.bestScore,
+    required this.latest,
+  });
+
+  final int roundCount;
+  final int weeklyStreak;
+  final int? bestScore;
+  final SavedRound? latest;
+
+  factory _DashboardSummary.fromRounds(List<SavedRound> rounds) {
+    final sorted = [...rounds]..sort((a, b) => b.date.compareTo(a.date));
+    final completedRounds = rounds
+        .where((round) => !round.isAutoSaved)
+        .toList();
+    final scores = [
+      for (final round in completedRounds)
+        if (round.ranking.isNotEmpty) round.ranking.first.total,
+    ];
+    final weeks = <DateTime>{
+      for (final round in completedRounds) _weekStart(round.date),
+    }.toList()..sort((a, b) => b.compareTo(a));
+    var streak = 0;
+    final currentWeek = _weekStart(DateTime.now());
+    final latestWeekGap = weeks.isEmpty
+        ? null
+        : currentWeek.difference(weeks.first).inDays;
+    if (latestWeekGap == 0 || latestWeekGap == 7) {
+      streak = 1;
+      for (var index = 1; index < weeks.length; index++) {
+        if (weeks[index - 1].difference(weeks[index]).inDays != 7) {
+          break;
+        }
+        streak++;
+      }
+    }
+    return _DashboardSummary(
+      roundCount: completedRounds.length,
+      weeklyStreak: streak,
+      bestScore: scores.isEmpty
+          ? null
+          : scores.reduce((best, score) => score < best ? score : best),
+      latest: sorted.isEmpty ? null : sorted.first,
+    );
+  }
+
+  static DateTime _weekStart(DateTime date) {
+    final day = DateTime(date.year, date.month, date.day);
+    return day.subtract(Duration(days: day.weekday - DateTime.monday));
+  }
+}
+
+class _DashboardMetrics extends StatelessWidget {
+  const _DashboardMetrics({required this.summary});
+
+  final _DashboardSummary summary;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: _MetricCard(
+            icon: Icons.flag_outlined,
+            value: '${summary.roundCount}',
+            label: tr(context, 'Rounds', 'ラウンド'),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _MetricCard(
+            icon: Icons.local_fire_department_outlined,
+            value: '${summary.weeklyStreak}',
+            label: tr(context, 'Week streak', '週連続'),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _MetricCard(
+            icon: Icons.workspace_premium_outlined,
+            value: summary.bestScore == null
+                ? '—'
+                : formatRelativeScore(summary.bestScore!),
+            label: tr(context, 'Best', 'ベスト'),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _MetricCard extends StatelessWidget {
+  const _MetricCard({
+    required this.icon,
+    required this.value,
+    required this.label,
+  });
+
+  final IconData icon;
+  final String value;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return _GlassPanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 20, color: appAccentColor(context)),
+          const SizedBox(height: 10),
+          Text(
+            value,
+            style: TextStyle(
+              color: primaryTextColor(context),
+              fontSize: 24,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: secondaryTextColor(context),
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RecentRoundCard extends StatelessWidget {
+  const _RecentRoundCard({required this.round, required this.onOpenHistory});
+
+  final SavedRound round;
+  final VoidCallback onOpenHistory;
+
+  @override
+  Widget build(BuildContext context) {
+    final leader = round.ranking.isEmpty ? null : round.ranking.first;
+    return _GlassPanel(
+      child: InkWell(
+        onTap: onOpenHistory,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.all(2),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Text(
+                    tr(context, 'Latest round', '直近のラウンド'),
+                    style: TextStyle(
+                      color: appAccentColor(context),
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const Spacer(),
+                  Icon(
+                    Icons.arrow_forward,
+                    size: 18,
+                    color: secondaryTextColor(context),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                round.courseName,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: primaryTextColor(context),
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                '${formatRoundDate(round.date)}  ·  ${round.holesCount}H${leader == null ? '' : '  ·  ${formatRelativeScore(leader.total)}'}',
+                style: TextStyle(
+                  color: secondaryTextColor(context),
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyHistoryCard extends StatelessWidget {
+  const _EmptyHistoryCard({required this.onOpenCourses});
+
+  final VoidCallback onOpenCourses;
+
+  @override
+  Widget build(BuildContext context) {
+    return _GlassPanel(
+      child: Row(
+        children: [
+          Icon(Icons.explore_outlined, color: appAccentColor(context)),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  tr(context, 'Find your first course', '最初のコースを探す'),
+                  style: TextStyle(
+                    color: primaryTextColor(context),
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                Text(
+                  tr(
+                    context,
+                    'Browse Japan and GOLFZON simulator courses.',
+                    '国内とGOLFZONのシミュレーターコースを検索できます。',
+                  ),
+                  style: TextStyle(
+                    color: secondaryTextColor(context),
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            onPressed: onOpenCourses,
+            icon: const Icon(Icons.arrow_forward),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AiQuickCard extends StatelessWidget {
+  const _AiQuickCard({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return _GlassPanel(
+      child: InkWell(
+        key: const Key('shotAnalysisButton'),
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Row(
+          children: [
+            Container(
+              width: 46,
+              height: 46,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [appAccentColor(context), const Color(0xFF7C8CFF)],
+                ),
+                borderRadius: BorderRadius.circular(15),
+              ),
+              child: const Icon(Icons.auto_awesome, color: Colors.black),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    tr(context, 'AI Swing Coach', 'AIスイングコーチ'),
+                    style: TextStyle(
+                      color: primaryTextColor(context),
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    tr(
+                      context,
+                      'Record a video and get Gemini feedback.',
+                      '動画を撮ってGeminiの診断を受ける。',
+                    ),
+                    style: TextStyle(
+                      color: secondaryTextColor(context),
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right, color: secondaryTextColor(context)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AiHubPage extends StatelessWidget {
+  const _AiHubPage({required this.onOpenAnalysis});
+
+  final VoidCallback onOpenAnalysis;
+
+  @override
+  Widget build(BuildContext context) {
+    final configured = CloudflareGolfVideoAnalyzer.hasEnvironmentEndpoint;
+    return SafeArea(
+      bottom: false,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 28, 20, 110),
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 720),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  tr(context, 'AI Swing Coach', 'AIスイングコーチ'),
+                  style: TextStyle(
+                    color: primaryTextColor(context),
+                    fontSize: 32,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.8,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  tr(
+                    context,
+                    'Turn one swing video into clear practice priorities.',
+                    '1本のスイング動画から、次に直すポイントを明確にします。',
+                  ),
+                  style: TextStyle(
+                    color: secondaryTextColor(context),
+                    fontSize: 15,
+                  ),
+                ),
+                const SizedBox(height: 22),
+                LiquidGlassSurface(
+                  prominent: true,
+                  radius: 28,
+                  useNativeGlass: true,
+                  padding: const EdgeInsets.all(22),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 54,
+                            height: 54,
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFF69F0AE), Color(0xFF7C8CFF)],
+                              ),
+                              borderRadius: BorderRadius.circular(18),
+                            ),
+                            child: const Icon(
+                              Icons.videocam,
+                              color: Colors.black,
+                              size: 28,
+                            ),
+                          ),
+                          const SizedBox(width: 15),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  tr(context, 'Video diagnosis', '動画スイング診断'),
+                                  style: TextStyle(
+                                    color: primaryTextColor(context),
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                Text(
+                                  configured
+                                      ? tr(
+                                          context,
+                                          'Cloudflare API ready',
+                                          'Cloudflare API準備完了',
+                                        )
+                                      : tr(
+                                          context,
+                                          'Cloudflare endpoint required',
+                                          'Cloudflareエンドポイント未設定',
+                                        ),
+                                  style: TextStyle(
+                                    color: configured
+                                        ? appAccentColor(context)
+                                        : secondaryTextColor(context),
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 22),
+                      ElevatedButton.icon(
+                        onPressed: onOpenAnalysis,
+                        icon: const Icon(Icons.auto_awesome),
+                        label: Text(tr(context, 'Analyze a swing', 'スイングを解析')),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                for (final item in [
+                  (
+                    Icons.slow_motion_video,
+                    tr(context, 'Phase-by-phase review', 'フェーズ別レビュー'),
+                    tr(
+                      context,
+                      'Address, backswing, impact, and follow-through.',
+                      'アドレス、バックスイング、インパクト、フォローを診断。',
+                    ),
+                  ),
+                  (
+                    Icons.track_changes,
+                    tr(context, 'Actionable drills', '実践できるドリル'),
+                    tr(
+                      context,
+                      'Prioritized fixes you can take to the range.',
+                      '練習場ですぐ試せる改善点を優先順に表示。',
+                    ),
+                  ),
+                  (
+                    Icons.privacy_tip_outlined,
+                    tr(context, 'Private by design', 'プライバシー重視'),
+                    tr(
+                      context,
+                      'The Worker forwards the selected clip for analysis only.',
+                      '選択した動画は解析時だけWorkerから転送します。',
+                    ),
+                  ),
+                ]) ...[
+                  _GlassPanel(
+                    child: Row(
+                      children: [
+                        Icon(item.$1, color: appAccentColor(context)),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                item.$2,
+                                style: TextStyle(
+                                  color: primaryTextColor(context),
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                item.$3,
+                                style: TextStyle(
+                                  color: secondaryTextColor(context),
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ClubBagPage extends StatefulWidget {
+  const _ClubBagPage();
+
+  @override
+  State<_ClubBagPage> createState() => _ClubBagPageState();
+}
+
+class _ClubBagPageState extends State<_ClubBagPage> {
+  static const _clubIDs = [
+    'driver',
+    '3w',
+    '5w',
+    '7w',
+    '4h',
+    '4i',
+    '5i',
+    '6i',
+    '7i',
+    '8i',
+    '9i',
+    'pw',
+    'aw',
+    'sw',
+    'lw',
+    'putter',
+  ];
+  static const _defaultBag = {
+    'driver',
+    '3w',
+    '5w',
+    '4h',
+    '5i',
+    '6i',
+    '7i',
+    '8i',
+    '9i',
+    'pw',
+    'aw',
+    'sw',
+    'putter',
+  };
+
+  Set<String> _selected = _defaultBag;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_load());
+  }
+
+  Future<void> _load() async {
+    final stored = await ClubBagStorage.load();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _selected = stored ?? _defaultBag;
+      _loading = false;
+    });
+  }
+
+  Future<void> _toggle(String id, bool selected) async {
+    if (selected && _selected.length >= 14) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            tr(
+              context,
+              'A golf bag can hold up to 14 clubs.',
+              'クラブは14本まで登録できます。',
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+    setState(() {
+      final next = Set<String>.from(_selected);
+      selected ? next.add(id) : next.remove(id);
+      _selected = next;
+    });
+    await ClubBagStorage.save(_selected);
+  }
+
+  String _clubName(BuildContext context, String id) {
+    const names = {
+      'driver': ('Driver', 'ドライバー'),
+      '3w': ('3 Wood', '3W'),
+      '5w': ('5 Wood', '5W'),
+      '7w': ('7 Wood', '7W'),
+      '4h': ('4 Hybrid', '4U'),
+      '4i': ('4 Iron', '4I'),
+      '5i': ('5 Iron', '5I'),
+      '6i': ('6 Iron', '6I'),
+      '7i': ('7 Iron', '7I'),
+      '8i': ('8 Iron', '8I'),
+      '9i': ('9 Iron', '9I'),
+      'pw': ('Pitching Wedge', 'PW'),
+      'aw': ('Approach Wedge', 'AW'),
+      'sw': ('Sand Wedge', 'SW'),
+      'lw': ('Lob Wedge', 'LW'),
+      'putter': ('Putter', 'パター'),
+    };
+    final name = names[id]!;
+    return tr(context, name.$1, name.$2);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      bottom: false,
+      child: CustomScrollView(
+        slivers: [
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(20, 28, 20, 110),
+            sliver: SliverList.list(
+              children: [
+                Text(
+                  tr(context, 'My Bag', 'マイクラブ'),
+                  style: TextStyle(
+                    color: primaryTextColor(context),
+                    fontSize: 32,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.8,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  tr(
+                    context,
+                    'Keep the clubs you actually carry ready for scoring and AI analysis.',
+                    '普段使うクラブを登録して、スコア入力とAI解析に活用します。',
+                  ),
+                  style: TextStyle(
+                    color: secondaryTextColor(context),
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                _GlassPanel(
+                  child: Row(
+                    children: [
+                      Icon(Icons.sports_golf, color: appAccentColor(context)),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          tr(context, 'Clubs in bag', 'バッグのクラブ'),
+                          style: TextStyle(
+                            color: primaryTextColor(context),
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      Text(
+                        '${_selected.length} / 14',
+                        style: TextStyle(
+                          color: appAccentColor(context),
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                if (_loading)
+                  const Center(child: CircularProgressIndicator())
+                else
+                  for (final id in _clubIDs) ...[
+                    _GlassPanel(
+                      child: SwitchListTile.adaptive(
+                        contentPadding: EdgeInsets.zero,
+                        value: _selected.contains(id),
+                        onChanged: (selected) => _toggle(id, selected),
+                        secondary: Icon(
+                          id == 'putter'
+                              ? Icons.golf_course
+                              : Icons.sports_golf,
+                          color: _selected.contains(id)
+                              ? appAccentColor(context)
+                              : secondaryTextColor(context),
+                        ),
+                        title: Text(
+                          _clubName(context, id),
+                          style: TextStyle(
+                            color: primaryTextColor(context),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 9),
+                  ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class PlayerSetupPage extends StatefulWidget {
-  const PlayerSetupPage({super.key});
+  const PlayerSetupPage({super.key, this.initialCourse});
+
+  final GolfCourse? initialCourse;
 
   @override
   State<PlayerSetupPage> createState() => _PlayerSetupPageState();
@@ -337,16 +1433,37 @@ class _PlayerSetupPageState extends State<PlayerSetupPage> {
 
   int _roundHoles = 9;
   GolfCourse? _selectedCourse;
+  bool _localizedInitialCourse = false;
 
-  final TextEditingController _courseController = TextEditingController(
-    text: 'BlackShell Golf Club',
-  );
+  late final TextEditingController _courseController;
 
   final List<TextEditingController> _playerControllers = [
     TextEditingController(text: 'Player 1'),
     TextEditingController(text: 'Player 2'),
     TextEditingController(text: 'Player 3'),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedCourse = widget.initialCourse;
+    _courseController = TextEditingController(
+      text: widget.initialCourse?.name ?? 'BlackShell Golf Club',
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final initialCourse = widget.initialCourse;
+    if (!_localizedInitialCourse && initialCourse != null) {
+      _courseController.text = JapanGolfCourseDirectory.displayCourseName(
+        context,
+        initialCourse,
+      );
+      _localizedInitialCourse = true;
+    }
+  }
 
   bool get _isPracticeRangeSelected =>
       _selectedCourse?.isPracticeRange ?? false;
@@ -435,6 +1552,25 @@ class _PlayerSetupPageState extends State<PlayerSetupPage> {
       return;
     }
 
+    final normalizedPlayerNames = <String>{};
+    final hasDuplicatePlayerName = players.any(
+      (name) => !normalizedPlayerNames.add(name.toLowerCase()),
+    );
+    if (hasDuplicatePlayerName) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            tr(
+              context,
+              'Use a different name for each player.',
+              'プレイヤー名はそれぞれ別の名前にしてください。',
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -446,14 +1582,8 @@ class _PlayerSetupPageState extends State<PlayerSetupPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: appBackgroundColor(context),
-      appBar: AppBar(
-        backgroundColor: Colors.black.withValues(alpha: 0.72),
-        foregroundColor: Colors.white,
-        elevation: 0,
-        title: Text(tr(context, 'Players', 'プレイヤー')),
-      ),
+    return _GlassPage(
+      appBar: _liquidAppBar(context, tr(context, 'Players', 'プレイヤー')),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -554,7 +1684,7 @@ class _PlayerSetupPageState extends State<PlayerSetupPage> {
                             backgroundColor: Colors.greenAccent.withValues(
                               alpha: 0.16,
                             ),
-                            foregroundColor: Colors.greenAccent,
+                            foregroundColor: appAccentColor(context),
                             child: Text('${index + 1}'),
                           ),
                           const SizedBox(width: 14),
@@ -564,7 +1694,7 @@ class _PlayerSetupPageState extends State<PlayerSetupPage> {
                               style: TextStyle(
                                 color: primaryTextColor(context),
                               ),
-                              cursorColor: Colors.greenAccent,
+                              cursorColor: appAccentColor(context),
                               decoration: InputDecoration(
                                 hintText: tr(context, 'Player name', 'プレイヤー名'),
                                 hintStyle: TextStyle(
@@ -584,8 +1714,8 @@ class _PlayerSetupPageState extends State<PlayerSetupPage> {
                                 ),
                                 focusedBorder: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(14),
-                                  borderSide: const BorderSide(
-                                    color: Colors.greenAccent,
+                                  borderSide: BorderSide(
+                                    color: appAccentColor(context),
                                     width: 1.5,
                                   ),
                                 ),
@@ -621,15 +1751,11 @@ class _PlayerSetupPageState extends State<PlayerSetupPage> {
                     icon: const Icon(Icons.add),
                     label: Text(tr(context, 'Add Player', 'プレイヤー追加')),
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: isLightMode(context)
-                          ? const Color(0xFF07995D)
-                          : Colors.greenAccent,
+                      foregroundColor: appAccentColor(context),
                       disabledForegroundColor: secondaryTextColor(context),
                       side: BorderSide(
                         color: canAddPlayer
-                            ? (isLightMode(context)
-                                  ? const Color(0xFF07995D)
-                                  : Colors.greenAccent)
+                            ? appAccentColor(context)
                             : panelBorderColor(context),
                         width: 1.4,
                       ),
@@ -683,6 +1809,10 @@ class GolfCourse {
     this.nines = const [],
     this.latitude,
     this.longitude,
+    this.country = 'Japan',
+    this.totalYards,
+    this.simulatorProvider,
+    this.isVirtual = false,
   });
 
   factory GolfCourse.manual(String input) {
@@ -696,6 +1826,12 @@ class GolfCourse {
   final List<CourseNine> nines;
   final double? latitude;
   final double? longitude;
+  final String country;
+  final int? totalYards;
+  final String? simulatorProvider;
+  final bool isVirtual;
+
+  bool get isGolfzonCourse => simulatorProvider == 'GOLFZON';
 }
 
 class CourseNine {
@@ -1149,17 +2285,25 @@ class JapanGolfCourseDirectory {
   }
 
   static String displayCourseName(BuildContext context, GolfCourse course) {
-    return displayCourseNameForLanguage(
-      AppSettingsScope.of(context).language,
-      course,
-    );
+    if (isJapanese(context)) {
+      return course.name;
+    }
+    return englishCourseNames[course.name] ?? course.name;
   }
 
   static String displayCourseNameForLanguage(
     AppLanguage language,
     GolfCourse course,
   ) {
-    if (language == AppLanguage.japanese) {
+    final usesJapanese = switch (language) {
+      AppLanguage.japanese => true,
+      AppLanguage.english => false,
+      AppLanguage.system =>
+        WidgetsBinding.instance.platformDispatcher.locale.languageCode
+                .toLowerCase() ==
+            'ja',
+    };
+    if (usesJapanese) {
       return course.name;
     }
     return englishCourseNames[course.name] ?? course.name;
@@ -1180,6 +2324,182 @@ class JapanGolfCourseDirectory {
       return region;
     }
     return englishRegions[region] ?? region;
+  }
+}
+
+/// A curated starter catalog from GOLFZON's public official course library.
+/// Live account/score synchronization still requires a GOLFZON partner API.
+class GolfzonCourseCatalog {
+  static const String sourceUrl = 'https://www.golfzongolf.com/course-list';
+
+  static const courses = <GolfCourse>[
+    GolfCourse(
+      name: '58 Golf Club',
+      country: 'Japan',
+      totalYards: 6943,
+      simulatorProvider: 'GOLFZON',
+    ),
+    GolfCourse(
+      name: 'Akagi Country Club',
+      country: 'Japan',
+      totalYards: 6682,
+      simulatorProvider: 'GOLFZON',
+    ),
+    GolfCourse(
+      name: 'Anegasaki Country Club',
+      country: 'Japan',
+      totalYards: 6728,
+      simulatorProvider: 'GOLFZON',
+    ),
+    GolfCourse(
+      name: 'Ashitaka Six Hundred Club',
+      country: 'Japan',
+      totalYards: 6652,
+      simulatorProvider: 'GOLFZON',
+    ),
+    GolfCourse(
+      name: 'Beppu Golf Club',
+      country: 'Japan',
+      totalYards: 6836,
+      simulatorProvider: 'GOLFZON',
+    ),
+    GolfCourse(
+      name: 'Karuizawa Kogen Golf Club',
+      country: 'Japan',
+      totalYards: 6970,
+      simulatorProvider: 'GOLFZON',
+    ),
+    GolfCourse(
+      name: 'Katayamazu Golf Club - Hakusan Course',
+      country: 'Japan',
+      totalYards: 7108,
+      simulatorProvider: 'GOLFZON',
+    ),
+    GolfCourse(
+      name: 'Taiheiyo Club - Gotemba',
+      country: 'Japan',
+      totalYards: 7240,
+      simulatorProvider: 'GOLFZON',
+    ),
+    GolfCourse(
+      name: 'Kawana Hotel Golf Club - Fuji Course',
+      country: 'Japan',
+      totalYards: 6603,
+      simulatorProvider: 'GOLFZON',
+    ),
+    GolfCourse(
+      name: 'The North Country Golf Club',
+      country: 'Japan',
+      totalYards: 7042,
+      simulatorProvider: 'GOLFZON',
+    ),
+    GolfCourse(
+      name: 'The Southern Links Golf Club',
+      country: 'Japan',
+      totalYards: 7019,
+      simulatorProvider: 'GOLFZON',
+    ),
+    GolfCourse(
+      name: 'Kochi Kuroshio Country Club',
+      country: 'Japan',
+      totalYards: 7255,
+      simulatorProvider: 'GOLFZON',
+    ),
+    GolfCourse(
+      name: 'Passage Kinkai Island Golf Club',
+      country: 'Japan',
+      totalYards: 7022,
+      simulatorProvider: 'GOLFZON',
+    ),
+    GolfCourse(
+      name: 'Kiawah Island - Ocean Course',
+      country: 'United States',
+      totalYards: 7326,
+      simulatorProvider: 'GOLFZON',
+    ),
+    GolfCourse(
+      name: 'Arnold Palmer’s Bay Hill Club and Lodge',
+      country: 'United States',
+      totalYards: 7374,
+      simulatorProvider: 'GOLFZON',
+    ),
+    GolfCourse(
+      name: 'Pebble Beach Golf Links',
+      country: 'United States',
+      totalYards: 6785,
+      simulatorProvider: 'GOLFZON',
+    ),
+    GolfCourse(
+      name: 'Bethpage Black Golf Course',
+      country: 'United States',
+      totalYards: 7530,
+      simulatorProvider: 'GOLFZON',
+    ),
+    GolfCourse(
+      name: 'Harbour Town Golf Links',
+      country: 'United States',
+      totalYards: 6944,
+      simulatorProvider: 'GOLFZON',
+    ),
+    GolfCourse(
+      name: 'Troon North Golf Club - Pinnacle',
+      country: 'United States',
+      totalYards: 6971,
+      simulatorProvider: 'GOLFZON',
+    ),
+    GolfCourse(
+      name: 'Poppy Hills Golf Course',
+      country: 'United States',
+      totalYards: 6966,
+      simulatorProvider: 'GOLFZON',
+    ),
+    GolfCourse(
+      name: 'St Andrews Links - Old Course',
+      country: 'United Kingdom',
+      totalYards: 6943,
+      simulatorProvider: 'GOLFZON',
+    ),
+    GolfCourse(
+      name: 'Old Head Golf Links',
+      country: 'Ireland',
+      totalYards: 7086,
+      simulatorProvider: 'GOLFZON',
+    ),
+    GolfCourse(
+      name: 'Apex Challenge Golf Club',
+      country: 'Virtual',
+      totalYards: 8343,
+      simulatorProvider: 'GOLFZON',
+      isVirtual: true,
+    ),
+    GolfCourse(
+      name: 'Lost Valley Golf Club',
+      country: 'Virtual',
+      totalYards: 7317,
+      simulatorProvider: 'GOLFZON',
+      isVirtual: true,
+    ),
+    GolfCourse(
+      name: 'Tokyo City Virtual Country Club',
+      country: 'Virtual',
+      totalYards: 6948,
+      simulatorProvider: 'GOLFZON',
+      isVirtual: true,
+    ),
+  ];
+
+  static List<GolfCourse> search(String query) {
+    final normalized = query.trim().toLowerCase();
+    if (normalized.isEmpty) {
+      return List<GolfCourse>.of(courses);
+    }
+    return courses
+        .where(
+          (course) =>
+              course.name.toLowerCase().contains(normalized) ||
+              course.country.toLowerCase().contains(normalized),
+        )
+        .toList();
   }
 }
 
@@ -1272,38 +2592,55 @@ class SavedRound {
 }
 
 class RoundStorage {
-  static File get _file {
-    final appData = Platform.environment['APPDATA'];
-    final directory = appData == null || appData.isEmpty
-        ? Directory(
-            '${Directory.systemTemp.path}${Platform.pathSeparator}blackshell_golf',
-          )
-        : Directory('$appData${Platform.pathSeparator}BlackShellGolf');
+  static Future<Directory> storageDirectory() async {
+    try {
+      final supportDirectory = await getApplicationSupportDirectory();
+      return Directory(
+        '${supportDirectory.path}${Platform.pathSeparator}BlackShellGolf',
+      );
+    } on MissingPluginException {
+      // Widget tests do not register platform plugins. Keep their data isolated.
+      return Directory(
+        '${Directory.systemTemp.path}${Platform.pathSeparator}blackshell_golf',
+      );
+    }
+  }
 
+  static Future<File> _roundsFile() async {
+    final directory = await storageDirectory();
     return File('${directory.path}${Platform.pathSeparator}rounds.json');
   }
 
   static Future<List<SavedRound>> loadRounds() async {
-    final file = _file;
+    final file = await _roundsFile();
     if (!await file.exists()) {
       return [];
     }
+    try {
+      final content = await file.readAsString();
+      if (content.trim().isEmpty) {
+        return [];
+      }
 
-    final content = await file.readAsString();
-    if (content.trim().isEmpty) {
+      final decoded = jsonDecode(content);
+      if (decoded is! List<dynamic>) {
+        return [];
+      }
+      return decoded
+          .whereType<Map<String, dynamic>>()
+          .map(SavedRound.fromJson)
+          .toList();
+    } on Object catch (error, stackTrace) {
+      debugPrint('Saved round data could not be read: $error');
+      debugPrintStack(stackTrace: stackTrace);
       return [];
     }
-
-    final jsonList = jsonDecode(content) as List<dynamic>;
-    return jsonList
-        .map((entry) => SavedRound.fromJson(entry as Map<String, dynamic>))
-        .toList();
   }
 
   static Future<void> saveRound(SavedRound round) async {
     final rounds = await loadRounds();
     final updatedRounds = [round, ...rounds];
-    final file = _file;
+    final file = await _roundsFile();
     await file.parent.create(recursive: true);
     await file.writeAsString(
       const JsonEncoder.withIndent('  ').convert(
@@ -1318,7 +2655,7 @@ class RoundStorage {
       round,
       ...rounds.where((savedRound) => savedRound.id != round.id),
     ];
-    final file = _file;
+    final file = await _roundsFile();
     await file.parent.create(recursive: true);
     await file.writeAsString(
       const JsonEncoder.withIndent('  ').convert(
@@ -1328,10 +2665,47 @@ class RoundStorage {
   }
 
   static Future<void> clear() async {
-    final file = _file;
+    final file = await _roundsFile();
     if (await file.exists()) {
       await file.delete();
     }
+  }
+}
+
+class ClubBagStorage {
+  static Future<File> _clubsFile() async {
+    final directory = await RoundStorage.storageDirectory();
+    return File('${directory.path}${Platform.pathSeparator}clubs.json');
+  }
+
+  static Future<Set<String>?> load() async {
+    final file = await _clubsFile();
+    if (!await file.exists()) {
+      return null;
+    }
+    try {
+      final content = await file.readAsString();
+      if (content.trim().isEmpty) {
+        return null;
+      }
+
+      final decoded = jsonDecode(content);
+      if (decoded is! List<dynamic>) {
+        return null;
+      }
+      return decoded.map((club) => club.toString()).toSet();
+    } on Object catch (error, stackTrace) {
+      debugPrint('Club bag data could not be read: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      return null;
+    }
+  }
+
+  static Future<void> save(Set<String> clubs) async {
+    final file = await _clubsFile();
+    await file.parent.create(recursive: true);
+    final sortedClubs = clubs.toList()..sort();
+    await file.writeAsString(jsonEncode(sortedClubs));
   }
 }
 
@@ -1382,7 +2756,18 @@ class _ScorePageState extends State<ScorePage> {
   late final List<Player> _players;
   late final List<Hole> _holes;
   late final String _autoSaveId;
+  late final AppleRoundSync _appleRoundSync;
+  late final AppleFitnessSync _appleFitnessSync;
+  late final DateTime _roundStartedAt;
+  Future<void> _autoSaveOperation = Future<void>.value();
   int _currentHole = 0;
+  int _currentPlayerIndex = 0;
+  bool _roundFinishing = false;
+  bool _roundFinished = false;
+  bool _requestingFitnessAuthorization = false;
+  bool _fitnessWorkoutSaved = false;
+  AppleFitnessAuthorization _fitnessAuthorization =
+      AppleFitnessAuthorization.unavailable;
 
   @override
   void initState() {
@@ -1392,9 +2777,26 @@ class _ScorePageState extends State<ScorePage> {
         .toList();
     _holes = _buildHoles();
     _autoSaveId = 'autosave-${DateTime.now().millisecondsSinceEpoch}';
+    _roundStartedAt = DateTime.now();
+    _appleRoundSync = AppleRoundSync(onWatchCommand: _handleWatchCommand);
+    _appleFitnessSync = AppleFitnessSync();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        unawaited(_publishRoundState(startLiveActivity: true));
+        unawaited(_refreshFitnessAuthorization());
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _appleRoundSync.dispose(cancelActiveRound: !_roundFinished);
+    super.dispose();
   }
 
   Hole get _hole => _holes[_currentHole];
+
+  bool get _usesStandardScoringTemplate => widget.course.nines.isEmpty;
 
   List<Hole> _buildHoles() {
     final nines = widget.course.nines.isEmpty
@@ -1445,11 +2847,24 @@ class _ScorePageState extends State<ScorePage> {
   }
 
   Color _scoreStatusColor(String status) {
+    if (isLightMode(context)) {
+      return switch (status) {
+        'Albatross' => const Color(0xFF006A78),
+        'Eagle' => const Color(0xFF795900),
+        'Birdie' => const Color(0xFF007A45),
+        'Par' => const Color(0xFF4F5D54),
+        'Bogey' => const Color(0xFF914900),
+        'Double Bogey' || 'Triple+' => const Color(0xFFB3261E),
+        'Not set' => const Color(0xFF5F6F64),
+        _ => const Color(0xFF5F6F64),
+      };
+    }
+
     return switch (status) {
       'Albatross' => Colors.cyanAccent,
       'Eagle' => const Color(0xFFFFD166),
       'Birdie' => const Color(0xFF7CFFCB),
-      'Par' => isLightMode(context) ? const Color(0xFF4F5D54) : Colors.white54,
+      'Par' => Colors.white54,
       'Bogey' => const Color(0xFFFFA24C),
       'Double Bogey' || 'Triple+' => const Color(0xFFFF5C5C),
       'Not set' => const Color(0xFF8A978E),
@@ -1489,6 +2904,178 @@ class _ScorePageState extends State<ScorePage> {
     );
   }
 
+  Future<void> _refreshFitnessAuthorization() async {
+    final authorization = await _appleFitnessSync.authorizationStatus();
+    if (!mounted) {
+      return;
+    }
+    setState(() => _fitnessAuthorization = authorization);
+  }
+
+  Future<void> _connectAppleFitness() async {
+    if (_requestingFitnessAuthorization) {
+      return;
+    }
+
+    final currentAuthorization = await _appleFitnessSync.authorizationStatus();
+    if (!mounted) {
+      return;
+    }
+    setState(() => _fitnessAuthorization = currentAuthorization);
+
+    if (currentAuthorization == AppleFitnessAuthorization.authorized) {
+      _showFitnessMessage(
+        tr(
+          context,
+          'Apple Fitness is connected. This round will be saved as a golf workout.',
+          'Apple Fitnessと連携済みです。このラウンドはゴルフワークアウトとして保存されます。',
+        ),
+      );
+      return;
+    }
+
+    if (currentAuthorization == AppleFitnessAuthorization.unavailable) {
+      _showFitnessMessage(
+        tr(
+          context,
+          'Apple Health is not available on this device.',
+          'この端末ではAppleヘルスケアを利用できません。',
+        ),
+      );
+      return;
+    }
+
+    final shouldConnect = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(tr(context, 'Connect Apple Fitness', 'Apple Fitnessと連携')),
+        content: Text(
+          tr(
+            context,
+            'When you finish, BlackShell Golf will save the round duration, course, and hole count as a golf workout. It does not read health data.',
+            'ラウンド終了時に、時間・コース・ホール数をゴルフワークアウトとして保存します。健康データの読み取りは行いません。',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(tr(context, 'Not now', '今はしない')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(tr(context, 'Connect', '連携する')),
+          ),
+        ],
+      ),
+    );
+    if (shouldConnect != true || !mounted) {
+      return;
+    }
+
+    setState(() => _requestingFitnessAuthorization = true);
+    try {
+      final authorization = await _appleFitnessSync.requestAuthorization();
+      if (!mounted) {
+        return;
+      }
+      setState(() => _fitnessAuthorization = authorization);
+      _showFitnessMessage(
+        authorization == AppleFitnessAuthorization.authorized
+            ? tr(
+                context,
+                'Connected. The completed round will appear in Apple Fitness.',
+                '連携しました。完了したラウンドはApple Fitnessに表示されます。',
+              )
+            : tr(
+                context,
+                'Workout access was not granted. You can change it in Settings > Health.',
+                'ワークアウトへのアクセスが許可されませんでした。設定の「ヘルスケア」から変更できます。',
+              ),
+      );
+    } catch (error, stackTrace) {
+      debugPrint('Apple Fitness authorization failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (mounted) {
+        _showFitnessMessage(
+          tr(
+            context,
+            'Apple Fitness could not be connected.',
+            'Apple Fitnessに接続できませんでした。',
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _requestingFitnessAuthorization = false);
+      }
+    }
+  }
+
+  void _showFitnessMessage(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<bool> _saveFitnessWorkoutIfEnabled() async {
+    if (_fitnessWorkoutSaved) {
+      return true;
+    }
+
+    final authorization = await _appleFitnessSync.authorizationStatus();
+    if (!mounted) {
+      return false;
+    }
+    if (authorization != _fitnessAuthorization) {
+      setState(() => _fitnessAuthorization = authorization);
+    }
+    if (authorization != AppleFitnessAuthorization.authorized) {
+      return false;
+    }
+
+    try {
+      final workoutID = await _appleFitnessSync.saveGolfWorkout(
+        startedAt: _roundStartedAt,
+        endedAt: DateTime.now(),
+        roundId: _autoSaveId,
+        courseName: JapanGolfCourseDirectory.displayCourseName(
+          context,
+          widget.course,
+        ),
+        holeCount: widget.holes,
+        indoor: widget.course.isPracticeRange || widget.course.isGolfzonCourse,
+      );
+      final saved = workoutID != null && workoutID.isNotEmpty;
+      if (mounted) {
+        setState(() => _fitnessWorkoutSaved = saved);
+      }
+      return saved;
+    } catch (error, stackTrace) {
+      debugPrint('Apple Fitness workout save failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      return false;
+    }
+  }
+
+  Widget _fitnessAction() {
+    final connected =
+        _fitnessAuthorization == AppleFitnessAuthorization.authorized;
+    return IconButton(
+      key: const Key('appleFitnessButton'),
+      onPressed: _requestingFitnessAuthorization ? null : _connectAppleFitness,
+      tooltip: connected
+          ? tr(context, 'Apple Fitness connected', 'Apple Fitness連携済み')
+          : tr(context, 'Connect Apple Fitness', 'Apple Fitnessと連携'),
+      icon: _requestingFitnessAuthorization
+          ? const SizedBox.square(
+              dimension: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : Icon(connected ? Icons.favorite : Icons.favorite_border),
+      color: connected ? const Color(0xFFFF375F) : primaryTextColor(context),
+    );
+  }
+
   String _scoreStatusLabel(BuildContext context, String status) {
     return switch (status) {
       'Not set' => tr(context, 'Not set', '未入力'),
@@ -1512,6 +3099,10 @@ class _ScorePageState extends State<ScorePage> {
       return courseName;
     }
 
+    if (_usesStandardScoringTemplate) {
+      return '$courseName  /  ${tr(context, 'Standard scoring template', '標準スコアテンプレート')}';
+    }
+
     final routeName = tr(
       context,
       _hole.routeName == '東'
@@ -1526,9 +3117,11 @@ class _ScorePageState extends State<ScorePage> {
 
   void _markPar(Player player) {
     setState(() {
+      _currentPlayerIndex = _players.indexOf(player);
       player.scores[_currentHole] = 0;
       player.entered[_currentHole] = true;
     });
+    unawaited(_afterScoreChanged());
   }
 
   void _changeScore(Player player, int delta) {
@@ -1538,9 +3131,11 @@ class _ScorePageState extends State<ScorePage> {
     }
 
     setState(() {
+      _currentPlayerIndex = _players.indexOf(player);
       player.scores[_currentHole] = nextScore;
       player.entered[_currentHole] = true;
     });
+    unawaited(_afterScoreChanged());
   }
 
   void _goToPreviousHole() {
@@ -1551,7 +3146,8 @@ class _ScorePageState extends State<ScorePage> {
     setState(() {
       _currentHole--;
     });
-    _autoSaveRound();
+    unawaited(_autoSaveRound());
+    unawaited(_publishRoundState());
   }
 
   void _goToNextHole() {
@@ -1560,20 +3156,39 @@ class _ScorePageState extends State<ScorePage> {
       return;
     }
 
-    _autoSaveRound();
+    unawaited(_autoSaveRound());
 
     if (_isLastHole) {
-      _showFinalRanking();
+      unawaited(_showFinalRanking());
       return;
     }
 
     setState(() {
       _currentHole++;
     });
+    unawaited(_publishRoundState());
   }
 
-  void _showFinalRanking() {
-    Navigator.push(
+  Future<void> _showFinalRanking() async {
+    if (_roundFinished || _roundFinishing) {
+      return;
+    }
+    _roundFinishing = true;
+    await _saveCompletedRound();
+    await _appleRoundSync.finish(
+      _buildRoundSyncState(isComplete: true),
+      immediate: false,
+    );
+    if (!mounted) {
+      return;
+    }
+    _roundFinished = true;
+    final savedToFitness = await _saveFitnessWorkoutIfEnabled();
+    if (!mounted) {
+      return;
+    }
+
+    await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => FinalRankingPage(
@@ -1582,15 +3197,118 @@ class _ScorePageState extends State<ScorePage> {
             widget.course,
           ),
           players: _ranking,
+          savedToFitness: savedToFitness,
         ),
       ),
     );
+
+    if (mounted) {
+      _roundFinished = false;
+      _roundFinishing = false;
+      await _publishRoundState(startLiveActivity: true);
+    }
+  }
+
+  Future<void> _afterScoreChanged() async {
+    await Future.wait([_autoSaveRound(), _publishRoundState()]);
+  }
+
+  void _handleWatchCommand(WatchRoundCommand command) {
+    if (!mounted || _roundFinished || _roundFinishing) {
+      return;
+    }
+
+    switch (command.name) {
+      case 'scoreDelta':
+        final playerIndex = command.playerIndex;
+        final delta = command.delta;
+        if (playerIndex == null ||
+            delta == null ||
+            playerIndex < 0 ||
+            playerIndex >= _players.length ||
+            (delta != -1 && delta != 1)) {
+          return;
+        }
+        _changeScore(_players[playerIndex], delta);
+        return;
+      case 'markPar':
+        final playerIndex = command.playerIndex;
+        if (playerIndex == null ||
+            playerIndex < 0 ||
+            playerIndex >= _players.length) {
+          return;
+        }
+        _markPar(_players[playerIndex]);
+        return;
+      case 'previousHole':
+        _goToPreviousHole();
+        return;
+      case 'nextHole':
+        _goToNextHole();
+        return;
+    }
+  }
+
+  Future<void> _publishRoundState({bool startLiveActivity = false}) {
+    return _appleRoundSync.publish(
+      _buildRoundSyncState(),
+      startLiveActivity: startLiveActivity,
+    );
+  }
+
+  Map<String, Object?> _buildRoundSyncState({bool isComplete = false}) {
+    final currentPlayer = _players[_currentPlayerIndex];
+    final leader = _ranking.first;
+    return {
+      'active': !isComplete,
+      'roundId': _autoSaveId,
+      'courseName': JapanGolfCourseDirectory.displayCourseName(
+        context,
+        widget.course,
+      ),
+      'holeNumber': _hole.number,
+      'holeIndex': _currentHole,
+      'holeCount': widget.holes,
+      'routeName': _hole.routeName,
+      'par': _usesStandardScoringTemplate ? 0 : _hole.par,
+      if (!_usesStandardScoringTemplate) 'yards': _hole.yards,
+      'currentPlayerIndex': _currentPlayerIndex,
+      'currentPlayerName': currentPlayer.name,
+      'currentHoleScore': currentPlayer.scores[_currentHole],
+      'currentHoleEntered': currentPlayer.entered[_currentHole],
+      'currentToPar': currentPlayer.total,
+      'leaderName': leader.name,
+      'leaderToPar': leader.total,
+      'statusLabel': isComplete
+          ? tr(context, 'Round complete', 'ラウンド終了')
+          : _isCurrentHoleComplete
+          ? tr(context, 'Ready for next hole', '次のホールへ進めます')
+          : tr(context, 'Scoring', 'スコア入力中'),
+      'statusCode': isComplete
+          ? 'complete'
+          : _isCurrentHoleComplete
+          ? 'readyForNextHole'
+          : 'scoring',
+      'isComplete': isComplete,
+      'holeComplete': _isCurrentHoleComplete,
+      'isLastHole': _isLastHole,
+      'players': [
+        for (final player in _players)
+          {
+            'name': player.name,
+            'holeScore': player.scores[_currentHole],
+            'entered': player.entered[_currentHole],
+            'totalScore': player.total,
+            'toPar': player.total,
+          },
+      ],
+    };
   }
 
   SavedRound _buildSavedRound({required bool isAutoSaved}) {
     return SavedRound(
-      id: isAutoSaved ? _autoSaveId : DateTime.now().toIso8601String(),
-      date: DateTime.now(),
+      id: _autoSaveId,
+      date: _roundStartedAt,
       courseName: widget.course.name,
       holesCount: widget.holes,
       players: _players.map((player) => player.name).toList(),
@@ -1609,205 +3327,154 @@ class _ScorePageState extends State<ScorePage> {
     );
   }
 
-  Future<void> _autoSaveRound() async {
-    await RoundStorage.upsertAutoSave(_buildSavedRound(isAutoSaved: true));
+  Future<void> _autoSaveRound() {
+    final snapshot = _buildSavedRound(isAutoSaved: true);
+    _autoSaveOperation = _autoSaveOperation
+        .then((_) => RoundStorage.upsertAutoSave(snapshot))
+        .catchError((Object error, StackTrace stackTrace) {
+          debugPrint('Round auto-save failed: $error');
+          debugPrintStack(stackTrace: stackTrace);
+        });
+    return _autoSaveOperation;
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: appBackgroundColor(context),
-      appBar: AppBar(
-        backgroundColor: Colors.black.withValues(alpha: 0.72),
-        foregroundColor: Colors.white,
-        elevation: 0,
-        title: Text(tr(context, 'Scorecard', 'スコアカード')),
-      ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Hole ${_hole.number}',
-                      style: TextStyle(
-                        color: primaryTextColor(context),
-                        fontSize: 34,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  _HoleButton(
-                    icon: Icons.chevron_left,
-                    onPressed: _currentHole == 0 ? null : _goToPreviousHole,
-                  ),
-                  const SizedBox(width: 8),
-                  _HoleButton(
-                    icon: Icons.chevron_right,
-                    onPressed: _currentHole == widget.holes - 1
-                        ? null
-                        : _goToNextHole,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Text(
-                _holeSubtitle(),
-                style: TextStyle(
-                  color: secondaryTextColor(context),
-                  fontSize: 15,
-                ),
-              ),
-              const SizedBox(height: 22),
-              Expanded(
-                child: ListView.separated(
-                  itemCount: _players.length,
-                  separatorBuilder: (context, index) =>
-                      const SizedBox(height: 12),
-                  itemBuilder: (context, index) {
-                    final player = _players[index];
-                    final score = player.scores[_currentHole];
-                    final isEntered = player.entered[_currentHole];
-                    final status = isEntered ? _scoreStatus(score) : 'Not set';
-                    final statusColor = _scoreStatusColor(status);
+  Future<void> _saveCompletedRound() {
+    final snapshot = _buildSavedRound(isAutoSaved: false);
+    _autoSaveOperation = _autoSaveOperation
+        .then((_) => RoundStorage.upsertAutoSave(snapshot))
+        .catchError((Object error, StackTrace stackTrace) {
+          debugPrint('Completed round save failed: $error');
+          debugPrintStack(stackTrace: stackTrace);
+        });
+    return _autoSaveOperation;
+  }
 
-                    return _GlassPanel(
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  player.name,
-                                  style: TextStyle(
-                                    color: primaryTextColor(context),
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  '${tr(context, 'Total', '合計')} ${formatRelativeScore(player.total)}',
-                                  style: TextStyle(
-                                    color: secondaryTextColor(context),
-                                    fontSize: 13,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          _ScoreButton(
-                            icon: Icons.remove,
-                            onPressed: () => _changeScore(player, -1),
-                          ),
-                          SizedBox(
-                            width: 64,
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(12),
-                              onTap: () => _markPar(player),
-                              child: Text(
-                                formatRelativeScore(score),
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  color: isEntered
-                                      ? Colors.greenAccent
-                                      : secondaryTextColor(context),
-                                  fontSize: 34,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          ),
-                          _ScoreStatusBadge(
-                            label: _scoreStatusLabel(context, status),
-                            color: statusColor,
-                          ),
-                          const SizedBox(width: 10),
-                          _ScoreButton(
-                            icon: Icons.add,
-                            onPressed: () => _changeScore(player, 1),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: 16),
-              _GlassPanel(
+  Widget _buildHoleHeader() {
+    final progress = (_currentHole + 1) / widget.holes;
+
+    return _GlassPanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      tr(context, 'Ranking', 'ランキング'),
+                      '${tr(context, 'Hole', 'ホール')} ${_hole.number}',
                       style: TextStyle(
                         color: primaryTextColor(context),
-                        fontSize: 18,
+                        fontSize: 30,
+                        height: 1,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.8,
+                      ),
+                    ),
+                    const SizedBox(height: 7),
+                    Text(
+                      '${_currentHole + 1} / ${widget.holes}',
+                      style: TextStyle(
+                        color: secondaryTextColor(context),
+                        fontSize: 13,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
-                    const SizedBox(height: 12),
-                    ..._ranking.indexed.map((entry) {
-                      final player = entry.$2;
-
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: Row(
-                          children: [
-                            SizedBox(
-                              width: 34,
-                              child: Text(
-                                _rankLabel(player),
-                                style: const TextStyle(
-                                  color: Colors.greenAccent,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                            Expanded(
-                              child: Text(
-                                player.name,
-                                style: TextStyle(
-                                  color: secondaryTextColor(context),
-                                ),
-                              ),
-                            ),
-                            Text(
-                              formatRelativeScore(player.total),
-                              style: TextStyle(
-                                color: primaryTextColor(context),
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    }),
                   ],
                 ),
               ),
-              const SizedBox(height: 12),
-              ElevatedButton.icon(
-                key: const Key('nextHoleButton'),
-                onPressed: _goToNextHole,
-                icon: Icon(
-                  _isLastHole ? Icons.emoji_events : Icons.arrow_forward,
+              _HoleButton(
+                icon: Icons.chevron_left,
+                tooltip: tr(context, 'Previous hole', '前のホール'),
+                onPressed: _currentHole == 0 ? null : _goToPreviousHole,
+              ),
+              const SizedBox(width: 8),
+              _HoleButton(
+                icon: Icons.chevron_right,
+                tooltip: tr(context, 'Next hole', '次のホール'),
+                onPressed: _currentHole == widget.holes - 1
+                    ? null
+                    : _goToNextHole,
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(99),
+            child: LinearProgressIndicator(
+              value: progress,
+              minHeight: 5,
+              color: appAccentColor(context),
+              backgroundColor: fieldFillColor(context),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            _holeSubtitle(),
+            style: TextStyle(
+              color: secondaryTextColor(context),
+              fontSize: 14,
+              height: 1.35,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildScoreReadout({
+    required Player player,
+    required int score,
+    required bool isEntered,
+    required String status,
+    required Color statusColor,
+  }) {
+    return Semantics(
+      button: true,
+      liveRegion: true,
+      label:
+          '${player.name}, ${tr(context, 'hole score', 'ホールスコア')} '
+          '${isEntered ? formatRelativeScore(score) : tr(context, 'not set', '未入力')}, '
+          '${_scoreStatusLabel(context, status)}',
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () => _markPar(player),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                tr(context, 'HOLE SCORE', 'ホールスコア'),
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: secondaryTextColor(context),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.8,
                 ),
-                label: Text(
-                  _isLastHole
-                      ? tr(context, 'Final Ranking', '最終ランキング')
-                      : tr(context, 'Next Hole', '次のホールへ'),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                isEntered ? formatRelativeScore(score) : '–',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: isEntered
+                      ? appAccentColor(context)
+                      : secondaryTextColor(context),
+                  fontSize: 38,
+                  height: 1,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -1,
                 ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.greenAccent,
-                  foregroundColor: Colors.black,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
+              ),
+              const SizedBox(height: 7),
+              _ScoreStatusBadge(
+                label: _scoreStatusLabel(context, status),
+                color: statusColor,
               ),
             ],
           ),
@@ -1815,22 +3482,363 @@ class _ScorePageState extends State<ScorePage> {
       ),
     );
   }
+
+  Widget _buildPlayerCard(Player player) {
+    final score = player.scores[_currentHole];
+    final isEntered = player.entered[_currentHole];
+    final status = isEntered ? _scoreStatus(score) : 'Not set';
+    final statusColor = _scoreStatusColor(status);
+
+    return _GlassPanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  player.name,
+                  style: TextStyle(
+                    color: primaryTextColor(context),
+                    fontSize: 19,
+                    height: 1.2,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 11,
+                  vertical: 7,
+                ),
+                decoration: BoxDecoration(
+                  color: fieldFillColor(context),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: panelBorderColor(context)),
+                ),
+                child: Text(
+                  '${tr(context, 'Total', '合計')} ${formatRelativeScore(player.total)}',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: primaryTextColor(context),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 13),
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: fieldFillColor(context),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: isEntered
+                    ? statusColor.withValues(alpha: 0.26)
+                    : panelBorderColor(context),
+              ),
+            ),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final textScale = MediaQuery.textScalerOf(context).scale(1);
+                final stackControls =
+                    constraints.maxWidth < 300 || textScale > 1.45;
+                final readout = _buildScoreReadout(
+                  player: player,
+                  score: score,
+                  isEntered: isEntered,
+                  status: status,
+                  statusColor: statusColor,
+                );
+                final removeButton = _ScoreButton(
+                  icon: Icons.remove,
+                  tooltip: tr(context, 'Decrease score', 'スコアを減らす'),
+                  onPressed: score <= -9
+                      ? null
+                      : () => _changeScore(player, -1),
+                );
+                final addButton = _ScoreButton(
+                  icon: Icons.add,
+                  tooltip: tr(context, 'Increase score', 'スコアを増やす'),
+                  onPressed: score >= 9 ? null : () => _changeScore(player, 1),
+                );
+
+                if (stackControls) {
+                  return Column(
+                    children: [
+                      readout,
+                      const SizedBox(height: 10),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          removeButton,
+                          const SizedBox(width: 18),
+                          addButton,
+                        ],
+                      ),
+                    ],
+                  );
+                }
+
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    removeButton,
+                    Expanded(child: readout),
+                    addButton,
+                  ],
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRankingPanel() {
+    return _GlassPanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.leaderboard_rounded,
+                color: appAccentColor(context),
+                size: 21,
+              ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Text(
+                  tr(context, 'Ranking', 'ランキング'),
+                  style: TextStyle(
+                    color: primaryTextColor(context),
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ..._ranking.indexed.map((entry) {
+            final index = entry.$1;
+            final player = entry.$2;
+
+            return Padding(
+              padding: EdgeInsets.only(top: index == 0 ? 0 : 7),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 12,
+                ),
+                decoration: BoxDecoration(
+                  color: index == 0
+                      ? appAccentColor(context).withValues(alpha: 0.10)
+                      : fieldFillColor(context),
+                  borderRadius: BorderRadius.circular(15),
+                  border: Border.all(
+                    color: index == 0
+                        ? appAccentColor(context).withValues(alpha: 0.28)
+                        : panelBorderColor(context),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      constraints: const BoxConstraints(minWidth: 42),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: appAccentColor(context).withValues(alpha: 0.14),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        _rankLabel(player),
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: appAccentColor(context),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        player.name,
+                        style: TextStyle(
+                          color: primaryTextColor(context),
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      formatRelativeScore(player.total),
+                      style: TextStyle(
+                        color: primaryTextColor(context),
+                        fontSize: 19,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final completedPlayers = _players
+        .where((player) => player.entered[_currentHole])
+        .length;
+
+    return _GlassPage(
+      appBar: _liquidAppBar(
+        context,
+        tr(context, 'Scorecard', 'スコアカード'),
+        actions: [_fitnessAction()],
+        useGlass: false,
+      ),
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final horizontalPadding = constraints.maxWidth < 420 ? 14.0 : 24.0;
+
+            return ListView(
+              padding: EdgeInsets.fromLTRB(
+                horizontalPadding,
+                14,
+                horizontalPadding,
+                24,
+              ),
+              children: [
+                Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 720),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _buildHoleHeader(),
+                        const SizedBox(height: 20),
+                        Wrap(
+                          alignment: WrapAlignment.spaceBetween,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          spacing: 12,
+                          runSpacing: 5,
+                          children: [
+                            Text(
+                              tr(context, 'Players', 'プレイヤー'),
+                              style: TextStyle(
+                                color: primaryTextColor(context),
+                                fontSize: 20,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            Text(
+                              isJapanese(context)
+                                  ? '$completedPlayers / ${_players.length} 入力済み'
+                                  : '$completedPlayers / ${_players.length} scored',
+                              style: TextStyle(
+                                color: secondaryTextColor(context),
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        for (final player in _players) ...[
+                          _buildPlayerCard(player),
+                          const SizedBox(height: 12),
+                        ],
+                        const SizedBox(height: 8),
+                        _buildRankingPanel(),
+                        const SizedBox(height: 14),
+                        ElevatedButton.icon(
+                          key: const Key('nextHoleButton'),
+                          onPressed: _goToNextHole,
+                          icon: Icon(
+                            _isLastHole
+                                ? Icons.emoji_events
+                                : Icons.arrow_forward,
+                          ),
+                          label: Text(
+                            _isLastHole
+                                ? tr(context, 'Final Ranking', '最終ランキング')
+                                : tr(context, 'Next Hole', '次のホールへ'),
+                            textAlign: TextAlign.center,
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            minimumSize: const Size.fromHeight(58),
+                            backgroundColor: appAccentColor(context),
+                            foregroundColor: Theme.of(
+                              context,
+                            ).colorScheme.onPrimary,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 16,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(19),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
 }
 
 class _HoleButton extends StatelessWidget {
-  const _HoleButton({required this.icon, required this.onPressed});
+  const _HoleButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+  });
 
   final IconData icon;
+  final String tooltip;
   final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
-    return IconButton(
-      onPressed: onPressed,
-      icon: Icon(icon),
-      color: onPressed == null ? Colors.white24 : Colors.greenAccent,
-      style: IconButton.styleFrom(
-        backgroundColor: Colors.white.withValues(alpha: 0.06),
+    return SizedBox.square(
+      dimension: 48,
+      child: IconButton(
+        onPressed: onPressed,
+        tooltip: tooltip,
+        icon: Icon(icon),
+        color: onPressed == null
+            ? secondaryTextColor(context).withValues(alpha: 0.45)
+            : appAccentColor(context),
+        style: IconButton.styleFrom(
+          minimumSize: const Size.square(48),
+          backgroundColor: fieldFillColor(context),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
       ),
     );
   }
@@ -1841,10 +3849,12 @@ class FinalRankingPage extends StatelessWidget {
     super.key,
     required this.courseName,
     required this.players,
+    this.savedToFitness = false,
   });
 
   final String courseName;
   final List<Player> players;
+  final bool savedToFitness;
 
   String _rankLabel(BuildContext context, Player player) {
     final sameScoreCount = players
@@ -1870,14 +3880,8 @@ class FinalRankingPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: appBackgroundColor(context),
-      appBar: AppBar(
-        backgroundColor: Colors.black.withValues(alpha: 0.72),
-        foregroundColor: Colors.white,
-        elevation: 0,
-        title: Text(tr(context, 'Final Ranking', '最終ランキング')),
-      ),
+    return _GlassPage(
+      appBar: _liquidAppBar(context, tr(context, 'Final Ranking', '最終ランキング')),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -1897,6 +3901,30 @@ class FinalRankingPage extends StatelessWidget {
                 tr(context, 'Round complete', 'ラウンド終了'),
                 style: TextStyle(color: secondaryTextColor(context)),
               ),
+              if (savedToFitness) ...[
+                const SizedBox(height: 14),
+                _GlassPanel(
+                  child: Row(
+                    children: [
+                      const Icon(Icons.favorite, color: Color(0xFFFF375F)),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          tr(
+                            context,
+                            'Saved as a golf workout in Apple Fitness',
+                            'Apple Fitnessにゴルフワークアウトとして保存しました',
+                          ),
+                          style: TextStyle(
+                            color: primaryTextColor(context),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: 24),
               Expanded(
                 child: ListView.separated(
@@ -1912,8 +3940,8 @@ class FinalRankingPage extends StatelessWidget {
                             width: 72,
                             child: Text(
                               _rankLabel(context, player),
-                              style: const TextStyle(
-                                color: Colors.greenAccent,
+                              style: TextStyle(
+                                color: appAccentColor(context),
                                 fontWeight: FontWeight.w800,
                               ),
                             ),
@@ -1959,14 +3987,8 @@ class FinalRankingPage extends StatelessWidget {
                 icon: const Icon(Icons.home),
                 label: Text(tr(context, 'Finish', '終わる')),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: isLightMode(context)
-                      ? const Color(0xFF07995D)
-                      : Colors.greenAccent,
-                  side: BorderSide(
-                    color: isLightMode(context)
-                        ? const Color(0xFF07995D)
-                        : Colors.greenAccent,
-                  ),
+                  foregroundColor: appAccentColor(context),
+                  side: BorderSide(color: appAccentColor(context)),
                   padding: const EdgeInsets.symmetric(vertical: 16),
                 ),
               ),
@@ -2010,14 +4032,14 @@ class _GolfCourseField extends StatelessWidget {
     return _GlassPanel(
       child: Row(
         children: [
-          const Icon(Icons.location_on, color: Colors.greenAccent),
+          Icon(Icons.location_on, color: appAccentColor(context)),
           const SizedBox(width: 14),
           Expanded(
             child: TextField(
               key: const Key('golfCourseField'),
               controller: controller,
               style: TextStyle(color: primaryTextColor(context)),
-              cursorColor: Colors.greenAccent,
+              cursorColor: appAccentColor(context),
               decoration: InputDecoration(
                 labelText: tr(context, 'Golf Course', 'ゴルフ場'),
                 labelStyle: TextStyle(color: secondaryTextColor(context)),
@@ -2035,8 +4057,8 @@ class _GolfCourseField extends StatelessWidget {
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),
-                  borderSide: const BorderSide(
-                    color: Colors.greenAccent,
+                  borderSide: BorderSide(
+                    color: appAccentColor(context),
                     width: 1.5,
                   ),
                 ),
@@ -2049,7 +4071,7 @@ class _GolfCourseField extends StatelessWidget {
             onPressed: () => _pickCourse(context),
             tooltip: tr(context, 'Select golf course', 'ゴルフ場を選択'),
             icon: const Icon(Icons.add_location_alt),
-            color: Colors.greenAccent,
+            color: appAccentColor(context),
             style: IconButton.styleFrom(
               backgroundColor: Colors.white.withValues(alpha: 0.06),
             ),
@@ -2061,7 +4083,9 @@ class _GolfCourseField extends StatelessWidget {
 }
 
 class PastRoundsPage extends StatefulWidget {
-  const PastRoundsPage({super.key});
+  const PastRoundsPage({super.key, this.embedded = false});
+
+  final bool embedded;
 
   @override
   State<PastRoundsPage> createState() => _PastRoundsPageState();
@@ -2078,130 +4102,227 @@ class _PastRoundsPageState extends State<PastRoundsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: appBackgroundColor(context),
-      appBar: AppBar(
-        backgroundColor: Colors.black.withValues(alpha: 0.72),
-        foregroundColor: Colors.white,
-        elevation: 0,
-        title: Text(tr(context, 'Past Rounds', '過去のラウンド')),
-      ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: FutureBuilder<List<SavedRound>>(
-            future: _roundsFuture,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState != ConnectionState.done) {
-                return const Center(
-                  child: CircularProgressIndicator(color: Colors.greenAccent),
-                );
-              }
+    final content = SafeArea(
+      bottom: !widget.embedded,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          24,
+          widget.embedded ? 28 : 24,
+          24,
+          widget.embedded ? 110 : 24,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (widget.embedded) ...[
+              Text(
+                tr(context, 'Rounds', 'ラウンド履歴'),
+                style: TextStyle(
+                  color: primaryTextColor(context),
+                  fontSize: 32,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -1,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                tr(
+                  context,
+                  'Completed rounds and rounds in progress',
+                  '完了したラウンドと進行中の記録',
+                ),
+                style: TextStyle(
+                  color: secondaryTextColor(context),
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(height: 22),
+            ],
+            Expanded(
+              child: FutureBuilder<List<SavedRound>>(
+                future: _roundsFuture,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState != ConnectionState.done) {
+                    return Center(
+                      child: CircularProgressIndicator(
+                        color: appAccentColor(context),
+                      ),
+                    );
+                  }
 
-              final rounds = snapshot.data ?? [];
-              if (rounds.isEmpty) {
-                return Center(
-                  child: Text(
-                    tr(context, 'No saved rounds yet.', '保存済みラウンドはまだありません。'),
-                    style: const TextStyle(color: Colors.white54, fontSize: 16),
-                  ),
-                );
-              }
+                  final rounds = snapshot.data ?? [];
+                  if (rounds.isEmpty) {
+                    return Center(
+                      child: Text(
+                        tr(
+                          context,
+                          'No saved rounds yet.',
+                          '保存済みラウンドはまだありません。',
+                        ),
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: secondaryTextColor(context),
+                          fontSize: 16,
+                        ),
+                      ),
+                    );
+                  }
 
-              return ListView.separated(
-                itemCount: rounds.length,
-                separatorBuilder: (context, index) =>
-                    const SizedBox(height: 14),
-                itemBuilder: (context, index) {
-                  final round = rounds[index];
-                  final winner = round.ranking.isEmpty
-                      ? null
-                      : round.ranking.first;
+                  return ListView.separated(
+                    padding: EdgeInsets.zero,
+                    itemCount: rounds.length,
+                    separatorBuilder: (context, index) =>
+                        const SizedBox(height: 14),
+                    itemBuilder: (context, index) {
+                      final round = rounds[index];
+                      final winner = round.ranking.isEmpty
+                          ? null
+                          : round.ranking.first;
 
-                  return _GlassPanel(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Row(
+                      return _GlassPanel(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            Expanded(
-                              child: Text(
-                                round.courseName,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w800,
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    round.courseName,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: primaryTextColor(context),
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
                                 ),
-                              ),
-                            ),
-                            Text(
-                              '${round.holesCount}H',
-                              style: const TextStyle(
-                                color: Colors.greenAccent,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          formatRoundDate(round.date),
-                          style: const TextStyle(
-                            color: Colors.white54,
-                            fontSize: 13,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        if (winner != null)
-                          Text(
-                            '${tr(context, 'Winner', '勝者')}  ${winner.playerName}  ${formatRelativeScore(winner.total)}',
-                            style: const TextStyle(
-                              color: Colors.greenAccent,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        const SizedBox(height: 10),
-                        ...round.ranking
-                            .take(3)
-                            .map(
-                              (entry) => Padding(
-                                padding: const EdgeInsets.only(bottom: 6),
-                                child: Row(
+                                const SizedBox(width: 10),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
                                   children: [
-                                    Expanded(
-                                      child: Text(
-                                        entry.playerName,
-                                        style: const TextStyle(
-                                          color: Colors.white70,
+                                    Text(
+                                      '${round.holesCount}H',
+                                      style: TextStyle(
+                                        color: appAccentColor(context),
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                    if (round.isAutoSaved) ...[
+                                      const SizedBox(height: 5),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 3,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: appAccentColor(
+                                            context,
+                                          ).withValues(alpha: 0.14),
+                                          borderRadius: BorderRadius.circular(
+                                            999,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          tr(context, 'In progress', '進行中'),
+                                          style: TextStyle(
+                                            color: appAccentColor(context),
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w800,
+                                          ),
                                         ),
                                       ),
-                                    ),
-                                    Text(
-                                      formatRelativeScore(entry.total),
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
+                                    ],
                                   ],
                                 ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              formatRoundDate(round.date),
+                              style: TextStyle(
+                                color: secondaryTextColor(context),
+                                fontSize: 13,
                               ),
                             ),
-                      ],
-                    ),
+                            if (!round.isAutoSaved && winner != null) ...[
+                              const SizedBox(height: 12),
+                              Text(
+                                '${tr(context, 'Winner', '勝者')}  ${winner.playerName}  ${formatRelativeScore(winner.total)}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: appAccentColor(context),
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 10),
+                            ...round.ranking
+                                .take(3)
+                                .map(
+                                  (entry) => Padding(
+                                    padding: const EdgeInsets.only(bottom: 6),
+                                    child: Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            entry.playerName,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              color: secondaryTextColor(
+                                                context,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        Text(
+                                          formatRelativeScore(entry.total),
+                                          style: TextStyle(
+                                            color: primaryTextColor(context),
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                          ],
+                        ),
+                      );
+                    },
                   );
                 },
-              );
-            },
-          ),
+              ),
+            ),
+          ],
         ),
       ),
+    );
+
+    if (widget.embedded) {
+      return content;
+    }
+    return _GlassPage(
+      appBar: _liquidAppBar(context, tr(context, 'Past Rounds', '過去のラウンド')),
+      body: content,
     );
   }
 }
 
+enum _CourseCatalogSource { all, japan, golfzon }
+
 class GolfCoursePickerPage extends StatefulWidget {
-  const GolfCoursePickerPage({super.key});
+  const GolfCoursePickerPage({
+    super.key,
+    this.embedded = false,
+    this.onCourseSelected,
+  });
+
+  final bool embedded;
+  final ValueChanged<GolfCourse>? onCourseSelected;
 
   @override
   State<GolfCoursePickerPage> createState() => _GolfCoursePickerPageState();
@@ -2209,9 +4330,53 @@ class GolfCoursePickerPage extends StatefulWidget {
 
 class _GolfCoursePickerPageState extends State<GolfCoursePickerPage> {
   final TextEditingController _searchController = TextEditingController();
-  List<GolfCourse> _courses = JapanGolfCourseDirectory.courses;
+  late List<GolfCourse> _courses;
+  late _CourseCatalogSource _source;
   String? _selectedRegion;
   String? _selectedPrefecture;
+
+  @override
+  void initState() {
+    super.initState();
+    _source = _debugInitialSource();
+    _courses = _filteredCourses();
+  }
+
+  _CourseCatalogSource _debugInitialSource() {
+    if (const bool.fromEnvironment('dart.vm.product')) {
+      return _CourseCatalogSource.all;
+    }
+    const configuredSource = String.fromEnvironment(
+      'BLACKSHELL_INITIAL_COURSE_SOURCE',
+    );
+    if (configuredSource.isNotEmpty) {
+      return switch (configuredSource) {
+        'japan' => _CourseCatalogSource.japan,
+        'golfzon' => _CourseCatalogSource.golfzon,
+        _ => _CourseCatalogSource.all,
+      };
+    }
+    final environmentSource = Platform.environment['BLACKSHELL_COURSE_SOURCE'];
+    if (environmentSource != null) {
+      return switch (environmentSource) {
+        'japan' => _CourseCatalogSource.japan,
+        'golfzon' => _CourseCatalogSource.golfzon,
+        _ => _CourseCatalogSource.all,
+      };
+    }
+    const prefix = '--blackshell-course-source=';
+    for (final argument in Platform.executableArguments) {
+      if (!argument.startsWith(prefix)) {
+        continue;
+      }
+      return switch (argument.substring(prefix.length)) {
+        'japan' => _CourseCatalogSource.japan,
+        'golfzon' => _CourseCatalogSource.golfzon,
+        _ => _CourseCatalogSource.all,
+      };
+    }
+    return _CourseCatalogSource.all;
+  }
 
   @override
   void dispose() {
@@ -2219,35 +4384,53 @@ class _GolfCoursePickerPageState extends State<GolfCoursePickerPage> {
     super.dispose();
   }
 
+  List<GolfCourse> _filteredCourses() {
+    final query = _searchController.text;
+    switch (_source) {
+      case _CourseCatalogSource.all:
+        return [
+          ...JapanGolfCourseDirectory.search(query),
+          ...GolfzonCourseCatalog.search(query),
+        ];
+      case _CourseCatalogSource.japan:
+        return JapanGolfCourseDirectory.search(
+          query,
+          region: _selectedRegion,
+          prefecture: _selectedPrefecture,
+        );
+      case _CourseCatalogSource.golfzon:
+        return GolfzonCourseCatalog.search(query);
+    }
+  }
+
   void _searchCourses(String query) {
+    setState(() => _courses = _filteredCourses());
+  }
+
+  void _selectSource(_CourseCatalogSource source) {
     setState(() {
-      _courses = JapanGolfCourseDirectory.search(
-        query,
-        region: _selectedRegion,
-        prefecture: _selectedPrefecture,
-      );
+      _source = source;
+      if (source != _CourseCatalogSource.japan) {
+        _selectedRegion = null;
+        _selectedPrefecture = null;
+      }
+      _courses = _filteredCourses();
     });
   }
 
   void _selectRegion(String? region) {
     setState(() {
+      _source = _CourseCatalogSource.japan;
       _selectedRegion = region;
       _selectedPrefecture = null;
-      _courses = JapanGolfCourseDirectory.search(
-        _searchController.text,
-        region: _selectedRegion,
-      );
+      _courses = _filteredCourses();
     });
   }
 
   void _selectPrefecture(String? prefecture) {
     setState(() {
       _selectedPrefecture = prefecture;
-      _courses = JapanGolfCourseDirectory.search(
-        _searchController.text,
-        region: _selectedRegion,
-        prefecture: _selectedPrefecture,
-      );
+      _courses = _filteredCourses();
     });
   }
 
@@ -2258,186 +4441,385 @@ class _GolfCoursePickerPageState extends State<GolfCoursePickerPage> {
     return JapanGolfCourseDirectory.regions[_selectedRegion] ?? const [];
   }
 
+  String _displayCountry(BuildContext context, String country) {
+    if (!isJapanese(context)) {
+      return country;
+    }
+    return switch (country) {
+      'Japan' => '日本',
+      'United States' => 'アメリカ',
+      'United Kingdom' => 'イギリス',
+      'Ireland' => 'アイルランド',
+      'Virtual' => 'バーチャル',
+      _ => country,
+    };
+  }
+
+  String _golfzonCourseDetails(BuildContext context, GolfCourse course) {
+    final details = <String>[
+      'GOLFZON',
+      _displayCountry(context, course.country),
+    ];
+    if (course.totalYards case final yards?) {
+      details.add(
+        '${yards.toString().replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (match) => ',')} yd',
+      );
+    }
+    if (course.isVirtual && course.country != 'Virtual') {
+      details.add(tr(context, 'Virtual', 'バーチャル'));
+    }
+    return details.join('  ·  ');
+  }
+
+  void _selectCourse(GolfCourse course) {
+    final onCourseSelected = widget.onCourseSelected;
+    if (onCourseSelected != null) {
+      onCourseSelected(course);
+      return;
+    }
+    Navigator.pop(context, course);
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: appBackgroundColor(context),
-      appBar: AppBar(
-        backgroundColor: Colors.black.withValues(alpha: 0.72),
-        foregroundColor: Colors.white,
-        elevation: 0,
-        title: Text(tr(context, 'Golf Course', 'ゴルフ場')),
-      ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              TextField(
-                key: const Key('courseSearchField'),
-                controller: _searchController,
-                autofocus: true,
-                style: TextStyle(color: primaryTextColor(context)),
-                cursorColor: Colors.greenAccent,
-                onChanged: _searchCourses,
-                decoration: InputDecoration(
-                  prefixIcon: Icon(
-                    Icons.search,
-                    color: secondaryTextColor(context),
-                  ),
-                  hintText: tr(
-                    context,
-                    'Search by course or prefecture',
-                    'ゴルフ場名・都道府県で検索',
-                  ),
-                  hintStyle: TextStyle(color: secondaryTextColor(context)),
-                  filled: true,
-                  fillColor: fieldFillColor(context),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    borderSide: BorderSide(color: panelBorderColor(context)),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    borderSide: const BorderSide(
-                      color: Colors.greenAccent,
-                      width: 1.5,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                height: 42,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  children: [
-                    _RegionChip(
-                      label: tr(context, 'All', 'すべて'),
-                      selected: _selectedRegion == null,
-                      onTap: () => _selectRegion(null),
-                    ),
-                    for (final region in JapanGolfCourseDirectory.regions.keys)
-                      _RegionChip(
-                        label: JapanGolfCourseDirectory.displayRegion(
-                          context,
-                          region,
-                        ),
-                        selected: _selectedRegion == region,
-                        onTap: () => _selectRegion(region),
+    final content = SafeArea(
+      bottom: !widget.embedded,
+      child: CustomScrollView(
+        slivers: [
+          SliverPadding(
+            padding: EdgeInsets.fromLTRB(20, widget.embedded ? 28 : 20, 20, 0),
+            sliver: SliverToBoxAdapter(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (widget.embedded) ...[
+                    Text(
+                      tr(context, 'Courses', 'コース'),
+                      style: TextStyle(
+                        color: primaryTextColor(context),
+                        fontSize: 32,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -1,
                       ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      tr(
+                        context,
+                        'Find a real course or a GOLFZON simulator course.',
+                        '実在コースとGOLFZON対応コースから選択できます。',
+                      ),
+                      style: TextStyle(color: secondaryTextColor(context)),
+                    ),
+                    const SizedBox(height: 20),
                   ],
-                ),
-              ),
-              if (_prefectures.isNotEmpty) ...[
-                const SizedBox(height: 10),
-                SizedBox(
-                  height: 42,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    children: [
-                      _RegionChip(
-                        label: tr(context, 'All prefectures', '全県'),
-                        selected: _selectedPrefecture == null,
-                        onTap: () => _selectPrefecture(null),
+                  TextField(
+                    key: const Key('courseSearchField'),
+                    controller: _searchController,
+                    autofocus: !widget.embedded,
+                    style: TextStyle(color: primaryTextColor(context)),
+                    cursorColor: appAccentColor(context),
+                    onChanged: _searchCourses,
+                    decoration: InputDecoration(
+                      prefixIcon: Icon(
+                        Icons.search,
+                        color: secondaryTextColor(context),
                       ),
-                      for (final prefecture in _prefectures)
-                        _RegionChip(
-                          label: JapanGolfCourseDirectory.displayPrefecture(
-                            context,
-                            prefecture,
-                          ),
-                          selected: _selectedPrefecture == prefecture,
-                          onTap: () => _selectPrefecture(prefecture),
+                      hintText: tr(
+                        context,
+                        'Search course, prefecture or country',
+                        'コース名・都道府県・国名で検索',
+                      ),
+                      hintStyle: TextStyle(color: secondaryTextColor(context)),
+                      filled: true,
+                      fillColor: fieldFillColor(context),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide(
+                          color: panelBorderColor(context),
                         ),
-                    ],
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide(
+                          color: appAccentColor(context),
+                          width: 1.5,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    height: 42,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      children: [
+                        _RegionChip(
+                          label: tr(context, 'All', 'すべて'),
+                          selected: _source == _CourseCatalogSource.all,
+                          onTap: () => _selectSource(_CourseCatalogSource.all),
+                        ),
+                        _RegionChip(
+                          label: tr(context, 'Japan', '日本'),
+                          selected: _source == _CourseCatalogSource.japan,
+                          onTap: () =>
+                              _selectSource(_CourseCatalogSource.japan),
+                        ),
+                        _RegionChip(
+                          label: 'GOLFZON',
+                          selected: _source == _CourseCatalogSource.golfzon,
+                          onTap: () =>
+                              _selectSource(_CourseCatalogSource.golfzon),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (_source == _CourseCatalogSource.japan) ...[
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      height: 42,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        children: [
+                          _RegionChip(
+                            label: tr(context, 'All regions', '全地域'),
+                            selected: _selectedRegion == null,
+                            onTap: () => _selectRegion(null),
+                          ),
+                          for (final region
+                              in JapanGolfCourseDirectory.regions.keys)
+                            _RegionChip(
+                              label: JapanGolfCourseDirectory.displayRegion(
+                                context,
+                                region,
+                              ),
+                              selected: _selectedRegion == region,
+                              onTap: () => _selectRegion(region),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  if (_source == _CourseCatalogSource.japan &&
+                      _prefectures.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      height: 42,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        children: [
+                          _RegionChip(
+                            label: tr(context, 'All prefectures', '全県'),
+                            selected: _selectedPrefecture == null,
+                            onTap: () => _selectPrefecture(null),
+                          ),
+                          for (final prefecture in _prefectures)
+                            _RegionChip(
+                              label: JapanGolfCourseDirectory.displayPrefecture(
+                                context,
+                                prefecture,
+                              ),
+                              selected: _selectedPrefecture == prefecture,
+                              onTap: () => _selectPrefecture(prefecture),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  Text(
+                    switch (_source) {
+                      _CourseCatalogSource.golfzon => tr(
+                        context,
+                        '${_courses.length} courses from the public GOLFZON catalog',
+                        'GOLFZON公式公開カタログから${_courses.length}件',
+                      ),
+                      _CourseCatalogSource.japan => tr(
+                        context,
+                        '${_courses.length} courses in Japan',
+                        '日本のコース ${_courses.length}件',
+                      ),
+                      _CourseCatalogSource.all => tr(
+                        context,
+                        '${_courses.length} Japan and GOLFZON courses',
+                        '日本・GOLFZONコース ${_courses.length}件',
+                      ),
+                    },
+                    style: TextStyle(
+                      color: secondaryTextColor(context),
+                      fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+              ),
+            ),
+          ),
+          if (_courses.isEmpty)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Center(
+                  child: Text(
+                    tr(
+                      context,
+                      'No matching courses found.',
+                      '条件に合うコースがありません。',
+                    ),
+                    style: TextStyle(color: secondaryTextColor(context)),
                   ),
                 ),
-              ],
-              const SizedBox(height: 12),
-              Text(
-                tr(
-                  context,
-                  '${_courses.length} courses shown. Full Japan sync can be connected to Rakuten GORA API later.',
-                  '${_courses.length}件表示中。開発中のためホールごとのヤード数はずれることがあります。',
-                ),
-                style: TextStyle(
-                  color: secondaryTextColor(context),
-                  fontSize: 12,
-                ),
               ),
-              const SizedBox(height: 12),
-              Expanded(
-                child: ListView.separated(
-                  itemCount: _courses.length,
-                  separatorBuilder: (context, index) =>
-                      const SizedBox(height: 10),
-                  itemBuilder: (context, index) {
-                    final course = _courses[index];
+            )
+          else
+            SliverPadding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              sliver: SliverList.separated(
+                itemCount: _courses.length,
+                separatorBuilder: (context, index) =>
+                    const SizedBox(height: 10),
+                itemBuilder: (context, index) {
+                  final course = _courses[index];
+                  final courseName = course.isGolfzonCourse
+                      ? course.name
+                      : JapanGolfCourseDirectory.displayCourseName(
+                          context,
+                          course,
+                        );
+                  final courseDetails = course.isGolfzonCourse
+                      ? _golfzonCourseDetails(context, course)
+                      : course.isPracticeRange
+                      ? '${JapanGolfCourseDirectory.displayPrefecture(context, course.prefecture)} / ${tr(context, 'Practice Range', 'ゴルフ練習場')}'
+                      : JapanGolfCourseDirectory.displayPrefecture(
+                          context,
+                          course.prefecture,
+                        );
 
-                    return _GlassPanel(
-                      child: ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: Icon(
-                          course.isPracticeRange
-                              ? Icons.sports_golf
-                              : Icons.golf_course,
-                          color: Colors.greenAccent,
-                        ),
-                        title: Text(
-                          JapanGolfCourseDirectory.displayCourseName(
-                            context,
-                            course,
+                  return _GlassPanel(
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(
+                        course.isPracticeRange
+                            ? Icons.sports_golf
+                            : course.isVirtual
+                            ? Icons.videogame_asset_rounded
+                            : Icons.golf_course,
+                        color: appAccentColor(context),
+                      ),
+                      title: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              courseName,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: primaryTextColor(context),
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                           ),
-                          style: TextStyle(
-                            color: primaryTextColor(context),
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        subtitle: Text(
-                          course.isPracticeRange
-                              ? '${JapanGolfCourseDirectory.displayPrefecture(context, course.prefecture)} / ${tr(context, 'Practice Range', 'ゴルフ練習場')}'
-                              : JapanGolfCourseDirectory.displayPrefecture(
+                          if (course.isGolfzonCourse) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 7,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: appAccentColor(
                                   context,
-                                  course.prefecture,
+                                ).withValues(alpha: 0.16),
+                                borderRadius: BorderRadius.circular(999),
+                                border: Border.all(
+                                  color: appAccentColor(
+                                    context,
+                                  ).withValues(alpha: 0.55),
                                 ),
+                              ),
+                              child: MediaQuery.withClampedTextScaling(
+                                maxScaleFactor: 1.5,
+                                child: Text(
+                                  'GOLFZON',
+                                  style: TextStyle(
+                                    color: appAccentColor(context),
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 0.35,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      subtitle: Padding(
+                        padding: const EdgeInsets.only(top: 5),
+                        child: Text(
+                          courseDetails,
                           style: TextStyle(color: secondaryTextColor(context)),
                         ),
-                        trailing: const Icon(
-                          Icons.chevron_right,
-                          color: Colors.white38,
-                        ),
-                        onTap: () => Navigator.pop(context, course),
                       ),
-                    );
-                  },
-                ),
+                      trailing: Icon(
+                        Icons.chevron_right,
+                        color: secondaryTextColor(context),
+                      ),
+                      onTap: () => _selectCourse(course),
+                    ),
+                  );
+                },
               ),
-            ],
+            ),
+          SliverToBoxAdapter(
+            child: SizedBox(height: widget.embedded ? 112 : 20),
           ),
-        ),
+        ],
       ),
+    );
+
+    if (widget.embedded) {
+      return content;
+    }
+
+    return _GlassPage(
+      appBar: _liquidAppBar(context, tr(context, 'Golf Course', 'ゴルフ場')),
+      body: content,
     );
   }
 }
 
 class _ScoreButton extends StatelessWidget {
-  const _ScoreButton({required this.icon, required this.onPressed});
+  const _ScoreButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+  });
 
   final IconData icon;
+  final String tooltip;
   final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
-    return IconButton(
-      onPressed: onPressed,
-      icon: Icon(icon),
-      color: onPressed == null ? Colors.white24 : Colors.black,
-      style: IconButton.styleFrom(
-        backgroundColor: onPressed == null
-            ? Colors.white.withValues(alpha: 0.06)
-            : Colors.greenAccent,
+    return SizedBox.square(
+      dimension: 56,
+      child: IconButton(
+        onPressed: onPressed,
+        tooltip: tooltip,
+        icon: Icon(icon, size: 25),
+        color: onPressed == null
+            ? secondaryTextColor(context).withValues(alpha: 0.45)
+            : Theme.of(context).colorScheme.onPrimary,
+        style: IconButton.styleFrom(
+          minimumSize: const Size.square(56),
+          backgroundColor: onPressed == null
+              ? fieldFillColor(context)
+              : appAccentColor(context),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+        ),
       ),
     );
   }
@@ -2485,25 +4867,16 @@ class _ScoreStatusBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      constraints: const BoxConstraints(minWidth: 74),
+      constraints: const BoxConstraints(minWidth: 74, minHeight: 30),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(color: color.withValues(alpha: 0.42)),
-        boxShadow: [
-          BoxShadow(
-            color: color.withValues(alpha: 0.18),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
-          ),
-        ],
       ),
       child: Text(
         label,
         textAlign: TextAlign.center,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
         style: TextStyle(
           color: color,
           fontSize: 12,
@@ -2521,27 +4894,11 @@ class _GlassPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(18),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-        child: Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: panelFillColor(context),
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: panelBorderColor(context)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.greenAccent.withValues(alpha: 0.08),
-                blurRadius: 30,
-                offset: const Offset(0, 14),
-              ),
-            ],
-          ),
-          child: child,
-        ),
-      ),
+    return LiquidGlassSurface(
+      padding: const EdgeInsets.all(14),
+      radius: 20,
+      useNativeGlass: false,
+      child: child,
     );
   }
 }

@@ -1,0 +1,8 @@
+"live.hole" = "ホール";
+"live.par" = "PAR";
+"live.par.format" = "PAR %ld";
+"live.compact_hole.format" = "%ldH";
+"live.leader.format" = "首位  %@  %@";
+"live.status.scoring" = "スコア入力中";
+"live.status.ready" = "次のホールへ進めます";
+"live.status.complete" = "ラウンド終了";

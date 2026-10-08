@@ -1,0 +1,8 @@
+"live.hole" = "HOLE";
+"live.par" = "PAR";
+"live.par.format" = "PAR %ld";
+"live.compact_hole.format" = "H%ld";
+"live.leader.format" = "LEADER  %@  %@";
+"live.status.scoring" = "Scoring";
+"live.status.ready" = "Ready for next hole";
+"live.status.complete" = "Round complete";

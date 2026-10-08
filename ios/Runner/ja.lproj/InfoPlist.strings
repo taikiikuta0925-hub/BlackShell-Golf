@@ -1,0 +1,5 @@
+"CFBundleDisplayName" = "BlackShell Golf";
+"NSCameraUsageDescription" = "ゴルフスイングを撮影してAIでショット解析するためにカメラを使用します。";
+"NSMicrophoneUsageDescription" = "ゴルフスイング動画を撮影する際に音声を記録するためにマイクを使用します。";
+"NSHealthUpdateUsageDescription" = "完了したゴルフラウンドをワークアウトとしてAppleヘルスケアとフィットネスに保存するために使用します。";
+"NSPhotoLibraryUsageDescription" = "ライブラリからゴルフスイング動画を選び、AIでショット解析するために使用します。";

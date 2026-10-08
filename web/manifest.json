@@ -1,11 +1,11 @@
 {
-    "name": "blackshell_golf",
-    "short_name": "blackshell_golf",
+    "name": "BlackShell Golf",
+    "short_name": "BlackShell Golf",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#F4F7F4",
+    "theme_color": "#0B5D45",
+    "description": "Liquid Glass golf scorecard with AI swing coaching, Apple Watch, Live Activities, and Fitness sync.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
