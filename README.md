@@ -16,12 +16,12 @@ in one system aware interface. The iOS experience uses Apple's native glass and
 tab bar APIs on supported systems while Flutter owns the product flow and data.
 
 <p align="center">
-  <img src="docs/screenshots/home-dark-ja-ios27.png" width="46%" alt="BlackShell Golf home dashboard in Japanese dark mode">
+  <img src="docs/screenshots/app-home-liquid-glass-ios27.png" width="46%" alt="BlackShell Golf Liquid Glass home dashboard in Japanese dark mode">
   <img src="docs/screenshots/scorecard-light-en-ios27.png" width="46%" alt="BlackShell Golf scorecard in English light mode">
 </p>
 
 See the [Xcode Simulator screenshot gallery](docs/SCREENSHOT_GALLERY.md) for the
-course catalog, AI coach, scorecard, and Watch app.
+new app icon and launch mark, course catalog, AI coach, scorecard, and Watch app.
 
 ## Product highlights
 
