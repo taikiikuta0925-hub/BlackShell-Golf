@@ -1,9 +1,9 @@
-# BlackShell Golf Brand and Media Terms
+# BS Golf Brand and Media Terms
 
 Copyright © 2026 BlackShell Technology. All rights reserved.
 
 The MIT License in [`LICENSE`](LICENSE) applies to source code only. It does not
-grant rights to the BlackShell Golf or BlackShell names, logos, app icons,
+grant rights to the BS Golf or BlackShell names, logos, app icons,
 screenshots, screen recordings, visual identity, marketing copy, or other brand
 and media assets in this repository.
 

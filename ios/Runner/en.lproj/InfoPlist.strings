@@ -1,5 +1,5 @@
-"CFBundleDisplayName" = "BlackShell Golf";
-"NSCameraUsageDescription" = "BlackShell Golf uses the camera to record your golf swing for AI analysis.";
-"NSMicrophoneUsageDescription" = "BlackShell Golf uses the microphone to record audio with your golf swing video.";
-"NSHealthUpdateUsageDescription" = "BlackShell Golf saves completed golf rounds as workouts in Apple Health and Fitness.";
-"NSPhotoLibraryUsageDescription" = "BlackShell Golf uses your photo library to select golf swing videos for AI analysis.";
+"CFBundleDisplayName" = "BS Golf";
+"NSCameraUsageDescription" = "BS Golf uses the camera to record your golf swing for AI analysis.";
+"NSMicrophoneUsageDescription" = "BS Golf uses the microphone to record audio with your golf swing video.";
+"NSHealthUpdateUsageDescription" = "BS Golf saves completed golf rounds as workouts in Apple Health and Fitness.";
+"NSPhotoLibraryUsageDescription" = "BS Golf uses your photo library to select golf swing videos for AI analysis.";

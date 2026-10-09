@@ -1,4 +1,4 @@
-# BlackShell Golf
+# BS Golf
 
 **An iPhone and Apple Watch scorecard with Gemini powered swing coaching.**
 
@@ -10,14 +10,14 @@
 [![CI](https://github.com/taikiikuta0925-hub/BlackShell-Golf/actions/workflows/ci.yml/badge.svg)](https://github.com/taikiikuta0925-hub/BlackShell-Golf/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/code-MIT-green.svg)](LICENSE)
 
-BlackShell Golf combines round scoring, course discovery, club management, swing
+BS Golf combines round scoring, course discovery, club management, swing
 video analysis, Live Activities, Apple Watch controls, and Apple Fitness export
 in one system aware interface. The iOS experience uses Apple's native glass and
 tab bar APIs on supported systems while Flutter owns the product flow and data.
 
 <p align="center">
-  <img src="docs/screenshots/app-home-liquid-glass-ios27.png" width="46%" alt="BlackShell Golf Liquid Glass home dashboard in Japanese dark mode">
-  <img src="docs/screenshots/scorecard-light-en-ios27.png" width="46%" alt="BlackShell Golf scorecard in English light mode">
+  <img src="docs/screenshots/app-home-liquid-glass-ios27.png" width="46%" alt="BS Golf Liquid Glass home dashboard in Japanese dark mode">
+  <img src="docs/screenshots/scorecard-light-en-ios27.png" width="46%" alt="BS Golf scorecard in English light mode">
 </p>
 
 See the [Xcode Simulator screenshot gallery](docs/SCREENSHOT_GALLERY.md) for the
@@ -50,7 +50,7 @@ new app icon and launch mark, course catalog, AI coach, scorecard, and Watch app
 
 ## Apple experience
 
-BlackShell Golf targets iOS 17 and watchOS 10. On iOS 26 or later, native
+BS Golf targets iOS 17 and watchOS 10. On iOS 26 or later, native
 `UIGlassEffect` surfaces and a real UIKit `UITabBar` provide Apple's Liquid
 Glass presentation. Earlier supported systems use a readable blur fallback.
 
@@ -182,7 +182,7 @@ every push and pull request.
 
 ## Project status
 
-BlackShell Golf is an actively developed product prototype. Live GOLFZON account
+BS Golf is an actively developed product prototype. Live GOLFZON account
 sync and verified per hole data are not included. GOLFZON names and course data
 remain the property of their respective owners; catalog inclusion does not imply
 affiliation or endorsement.
@@ -191,6 +191,6 @@ affiliation or endorsement.
 
 Source code is available under the [MIT License](LICENSE).
 
-The BlackShell Golf name, logo, app icon, screenshots, screen recordings, visual
+The BS Golf name, logo, app icon, screenshots, screen recordings, visual
 identity, and marketing assets are not included in the MIT grant. See the
-[BlackShell Golf Brand and Media Terms](BRAND-ASSETS-LICENSE.md).
+[BS Golf Brand and Media Terms](BRAND-ASSETS-LICENSE.md).

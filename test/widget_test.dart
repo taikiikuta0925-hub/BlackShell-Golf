@@ -18,6 +18,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('次のラウンドへ'), findsOneWidget);
+    expect(find.text('BS Golf'), findsOneWidget);
     final logoContext = tester.element(find.byKey(const Key('homeLogo')));
     expect(Theme.of(logoContext).brightness, Brightness.light);
   });

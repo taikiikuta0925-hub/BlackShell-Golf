@@ -155,7 +155,7 @@ struct ContentView: View {
       Image(systemName: "figure.golf")
         .font(.system(size: 34))
         .foregroundStyle(.green)
-      Text("BlackShell Golf")
+      Text("BS Golf")
         .font(.headline)
       Text(localized("watch.waiting.message"))
         .font(.caption2)

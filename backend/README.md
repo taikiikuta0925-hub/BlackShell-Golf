@@ -1,4 +1,4 @@
-# BlackShell Golf AI Worker
+# BS Golf AI Worker
 
 This Cloudflare Worker keeps the Gemini API key off the phone and exposes a
 small API for short golf swing videos.

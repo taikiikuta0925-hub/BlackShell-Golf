@@ -3,6 +3,40 @@ import Foundation
 import HealthKit
 
 final class HealthKitBridge {
+  private enum MetadataKey {
+    static let namespace = "com.taikiikuta.blackshellGolf"
+    static let roundID = "\(namespace).roundId"
+    static let courseName = "\(namespace).courseName"
+    static let holeCount = "\(namespace).holeCount"
+    static let schemaVersion = "\(namespace).schemaVersion"
+    static let roundSummary = "\(namespace).roundSummary"
+  }
+
+  private struct GolfWorkoutInput {
+    let startedAt: Date
+    let endedAt: Date
+    let roundID: String
+    let courseName: String
+    let holeCount: Int
+    let indoor: Bool
+
+    var metadata: [String: Any] {
+      [
+        HKMetadataKeyWorkoutBrandName: "BS Golf · \(holeCount)H",
+        HKMetadataKeyIndoorWorkout: indoor,
+        HKMetadataKeyExternalUUID: roundID,
+        HKMetadataKeySyncIdentifier: "\(MetadataKey.namespace).round.\(roundID)",
+        HKMetadataKeySyncVersion: 1,
+        HKMetadataKeyTimeZone: TimeZone.current.identifier,
+        MetadataKey.roundID: roundID,
+        MetadataKey.courseName: courseName,
+        MetadataKey.holeCount: holeCount,
+        MetadataKey.schemaVersion: 1,
+        MetadataKey.roundSummary: "\(courseName) · \(holeCount)H",
+      ]
+    }
+  }
+
   private let channel: FlutterMethodChannel
   private let healthStore = HKHealthStore()
   private let workoutType = HKObjectType.workoutType()
@@ -109,26 +143,14 @@ final class HealthKitBridge {
       return
     }
 
-    guard let startedAtMillis = number(arguments["startedAtMillis"]),
-          let endedAtMillis = number(arguments["endedAtMillis"]),
-          let roundID = arguments["roundId"] as? String,
-          let courseName = arguments["courseName"] as? String,
-          let holeCount = number(arguments["holeCount"])?.intValue else {
-      result(invalidArgumentsError())
-      return
-    }
-
-    let startedAt = Date(timeIntervalSince1970: startedAtMillis.doubleValue / 1_000)
-    let endedAt = Date(timeIntervalSince1970: endedAtMillis.doubleValue / 1_000)
-    guard endedAt > startedAt else {
+    guard let workout = validatedInput(from: arguments) else {
       result(invalidArgumentsError())
       return
     }
 
     let configuration = HKWorkoutConfiguration()
     configuration.activityType = .golf
-    let indoor = arguments["indoor"] as? Bool ?? false
-    configuration.locationType = indoor ? .indoor : .outdoor
+    configuration.locationType = workout.indoor ? .indoor : .outdoor
 
     let builder = HKWorkoutBuilder(
       healthStore: healthStore,
@@ -136,29 +158,21 @@ final class HealthKitBridge {
       device: nil
     )
 
-    builder.beginCollection(withStart: startedAt) { [weak self] success, error in
+    builder.beginCollection(withStart: workout.startedAt) { [weak self] success, error in
       guard let self else { return }
       guard success, error == nil else {
         self.complete(result, error: error, code: "healthkit_workout_start_failed")
         return
       }
 
-      let metadata: [String: Any] = [
-        HKMetadataKeyWorkoutBrandName: "BlackShell Golf",
-        HKMetadataKeyIndoorWorkout: indoor,
-        "com.taikiikuta.blackshellGolf.roundId": roundID,
-        "com.taikiikuta.blackshellGolf.courseName": courseName,
-        "com.taikiikuta.blackshellGolf.holeCount": holeCount,
-      ]
-
-      builder.addMetadata(metadata) { success, error in
+      builder.addMetadata(workout.metadata) { success, error in
         guard success, error == nil else {
           builder.discardWorkout()
           self.complete(result, error: error, code: "healthkit_metadata_failed")
           return
         }
 
-        builder.endCollection(withEnd: endedAt) { success, error in
+        builder.endCollection(withEnd: workout.endedAt) { success, error in
           guard success, error == nil else {
             builder.discardWorkout()
             self.complete(result, error: error, code: "healthkit_workout_end_failed")
@@ -193,7 +207,93 @@ final class HealthKitBridge {
   }
 
   private func number(_ value: Any?) -> NSNumber? {
-    value as? NSNumber
+    guard let number = value as? NSNumber,
+          CFGetTypeID(number) != CFBooleanGetTypeID() else {
+      return nil
+    }
+    return number
+  }
+
+  private func validatedInput(from arguments: [String: Any]) -> GolfWorkoutInput? {
+    guard let startedAtMillis = finiteDouble(arguments["startedAtMillis"]),
+          let endedAtMillis = finiteDouble(arguments["endedAtMillis"]),
+          startedAtMillis >= 0,
+          endedAtMillis > startedAtMillis,
+          let roundIDValue = arguments["roundId"] as? String,
+          let roundID = sanitizedRoundID(roundIDValue),
+          let courseNameValue = arguments["courseName"] as? String,
+          let courseName = sanitizedMetadataString(courseNameValue, maxLength: 120),
+          !courseName.isEmpty,
+          let holeCount = integer(arguments["holeCount"]),
+          (1...36).contains(holeCount),
+          let indoor = arguments["indoor"] as? Bool else {
+      return nil
+    }
+
+    let startedAt = Date(timeIntervalSince1970: startedAtMillis / 1_000)
+    let endedAt = Date(timeIntervalSince1970: endedAtMillis / 1_000)
+    let maximumRoundDuration: TimeInterval = 36 * 60 * 60
+    let maximumClockSkew: TimeInterval = 10 * 60
+    guard endedAt.timeIntervalSince(startedAt) <= maximumRoundDuration,
+          endedAt <= Date().addingTimeInterval(maximumClockSkew) else {
+      return nil
+    }
+
+    return GolfWorkoutInput(
+      startedAt: startedAt,
+      endedAt: endedAt,
+      roundID: roundID,
+      courseName: courseName,
+      holeCount: holeCount,
+      indoor: indoor
+    )
+  }
+
+  private func finiteDouble(_ value: Any?) -> Double? {
+    guard let number = number(value) else { return nil }
+    let value = number.doubleValue
+    return value.isFinite ? value : nil
+  }
+
+  private func integer(_ value: Any?) -> Int? {
+    guard let value = finiteDouble(value),
+          value.rounded(.towardZero) == value,
+          value >= Double(Int.min),
+          value <= Double(Int.max) else {
+      return nil
+    }
+    return Int(value)
+  }
+
+  private func sanitizedRoundID(_ value: String) -> String? {
+    guard let sanitized = sanitizedMetadataString(value, maxLength: 128),
+          !sanitized.isEmpty else {
+      return nil
+    }
+
+    let allowedCharacters = CharacterSet.alphanumerics.union(
+      CharacterSet(charactersIn: "-._:")
+    )
+    guard sanitized.unicodeScalars.allSatisfy(allowedCharacters.contains) else {
+      return nil
+    }
+    return sanitized
+  }
+
+  private func sanitizedMetadataString(
+    _ value: String,
+    maxLength: Int
+  ) -> String? {
+    let withoutControls = value.filter { character in
+      character.unicodeScalars.allSatisfy {
+        !CharacterSet.controlCharacters.contains($0)
+      }
+    }
+    let collapsedWhitespace = withoutControls
+      .split(whereSeparator: \.isWhitespace)
+      .joined(separator: " ")
+    guard !collapsedWhitespace.isEmpty else { return nil }
+    return String(collapsedWhitespace.prefix(maxLength))
   }
 
   private func invalidArgumentsError() -> FlutterError {

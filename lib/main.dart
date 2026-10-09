@@ -66,7 +66,7 @@ class _BlackShellGolfAppState extends State<BlackShellGolfApp> {
       setLanguage: (language) => setState(() => _language = language),
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
-        title: 'BlackShell Golf',
+        title: 'BS Golf',
         locale: switch (_language) {
           AppLanguage.system => null,
           AppLanguage.english => const Locale('en'),
@@ -688,21 +688,43 @@ class _DashboardHeader extends StatelessWidget {
         Expanded(
           child: Align(
             alignment: Alignment.centerLeft,
-            child: Image.asset(
-              isLightMode(context) ? 'assets/logolight.png' : 'assets/logo.png',
-              key: const Key('homeLogo'),
-              width: 190,
-              height: 68,
-              fit: BoxFit.contain,
-              alignment: Alignment.centerLeft,
-              semanticLabel: 'BlackShell Golf',
-              errorBuilder: (context, error, stackTrace) => Text(
-                'BLACKSHELL GOLF',
-                style: TextStyle(
-                  color: primaryTextColor(context),
-                  fontSize: 20,
-                  fontWeight: FontWeight.w900,
-                ),
+            child: Semantics(
+              label: 'BS Golf',
+              image: true,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ExcludeSemantics(
+                    child: Image.asset(
+                      'assets/launch_mark.png',
+                      key: const Key('homeLogo'),
+                      width: 60,
+                      height: 60,
+                      cacheWidth: 192,
+                      cacheHeight: 192,
+                      fit: BoxFit.contain,
+                      filterQuality: FilterQuality.high,
+                      errorBuilder: (context, error, stackTrace) => SizedBox(
+                        width: 60,
+                        height: 60,
+                        child: Icon(
+                          Icons.sports_golf,
+                          color: appAccentColor(context),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    'BS Golf',
+                    style: TextStyle(
+                      color: primaryTextColor(context),
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -0.3,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -2958,7 +2980,7 @@ class _ScorePageState extends State<ScorePage> {
         content: Text(
           tr(
             context,
-            'When you finish, BlackShell Golf will save the round duration, course, and hole count as a golf workout. It does not read health data.',
+            'When you finish, BS Golf will save the round duration, course, and hole count as a golf workout. It does not read health data.',
             'ラウンド終了時に、時間・コース・ホール数をゴルフワークアウトとして保存します。健康データの読み取りは行いません。',
           ),
         ),
@@ -3202,6 +3224,7 @@ class _ScorePageState extends State<ScorePage> {
             context,
             widget.course,
           ),
+          holeCount: widget.holes,
           players: _ranking,
           savedToFitness: savedToFitness,
         ),
@@ -3854,11 +3877,13 @@ class FinalRankingPage extends StatelessWidget {
   const FinalRankingPage({
     super.key,
     required this.courseName,
+    required this.holeCount,
     required this.players,
     this.savedToFitness = false,
   });
 
   final String courseName;
+  final int holeCount;
   final List<Player> players;
   final bool savedToFitness;
 
@@ -3918,8 +3943,8 @@ class FinalRankingPage extends StatelessWidget {
                         child: Text(
                           tr(
                             context,
-                            'Saved as a golf workout in Apple Fitness',
-                            'Apple Fitnessにゴルフワークアウトとして保存しました',
+                            'Saved $holeCount holes at $courseName to Apple Fitness',
+                            '$courseName・$holeCountホールをApple Fitnessに保存しました',
                           ),
                           style: TextStyle(
                             color: primaryTextColor(context),
