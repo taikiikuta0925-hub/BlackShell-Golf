@@ -325,7 +325,7 @@ class _HomePageState extends State<HomePage> {
         selectedIcon: Icons.backpack,
       ),
       LiquidGlassTabDestination(
-        label: 'AI',
+        label: tr(context, 'AI Coach', 'AI診断'),
         sfSymbol: 'sparkles',
         accessibilityIdentifier: 'aiTabButton',
         icon: Icons.auto_awesome_outlined,
@@ -342,7 +342,7 @@ class _HomePageState extends State<HomePage> {
             onStartRound: _openRoundSetup,
             onOpenCourses: () => _selectTab(1),
             onOpenHistory: () => _selectTab(2),
-            onOpenAI: () => _selectTab(4),
+            onOpenAI: _openShotAnalysis,
             onOpenSettings: () => _showSettingsSheet(context),
           ),
           GolfCoursePickerPage(
@@ -649,6 +649,8 @@ class _HomeDashboardState extends State<_HomeDashboard> {
                             ),
                           ),
                           const SizedBox(height: 18),
+                          _AiQuickCard(onTap: widget.onOpenAI),
+                          const SizedBox(height: 18),
                           _DashboardMetrics(summary: summary),
                           const SizedBox(height: 18),
                           if (summary.latest case final latest?)
@@ -660,8 +662,6 @@ class _HomeDashboardState extends State<_HomeDashboard> {
                             _EmptyHistoryCard(
                               onOpenCourses: widget.onOpenCourses,
                             ),
-                          const SizedBox(height: 14),
-                          _AiQuickCard(onTap: widget.onOpenAI),
                         ],
                       ),
                     ),
@@ -1002,7 +1002,7 @@ class _AiQuickCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    tr(context, 'AI Swing Coach', 'AIスイングコーチ'),
+                    tr(context, 'Analyze your swing with AI', '動画を撮ってAI診断'),
                     style: TextStyle(
                       color: primaryTextColor(context),
                       fontSize: 17,
@@ -1013,8 +1013,8 @@ class _AiQuickCard extends StatelessWidget {
                   Text(
                     tr(
                       context,
-                      'Record a video and get Gemini feedback.',
-                      '動画を撮ってGeminiの診断を受ける。',
+                      'Gemini reviews each phase and suggests focused drills.',
+                      'Geminiが動きを分解し、優先ドリルを提案します。',
                     ),
                     style: TextStyle(
                       color: secondaryTextColor(context),
@@ -1115,13 +1115,13 @@ class _AiHubPage extends StatelessWidget {
                                   configured
                                       ? tr(
                                           context,
-                                          'Cloudflare API ready',
-                                          'Cloudflare API準備完了',
+                                          'Gemini AI configured',
+                                          'Gemini AI設定済み',
                                         )
                                       : tr(
                                           context,
-                                          'Cloudflare endpoint required',
-                                          'Cloudflareエンドポイント未設定',
+                                          'AI service setup required',
+                                          'AIサービスの設定が必要です',
                                         ),
                                   style: TextStyle(
                                     color: configured
@@ -1140,7 +1140,13 @@ class _AiHubPage extends StatelessWidget {
                       ElevatedButton.icon(
                         onPressed: onOpenAnalysis,
                         icon: const Icon(Icons.auto_awesome),
-                        label: Text(tr(context, 'Analyze a swing', 'スイングを解析')),
+                        label: Text(
+                          tr(
+                            context,
+                            'Choose video for AI diagnosis',
+                            '動画を選んでAI診断',
+                          ),
+                        ),
                       ),
                     ],
                   ),

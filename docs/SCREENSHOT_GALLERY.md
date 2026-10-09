@@ -9,11 +9,11 @@ verify system adaptation.
 
 | Surface | Language / appearance | What is shown |
 | --- | --- | --- |
-| Home | Japanese / Dark | Round entry points, summary cards, and native bottom navigation |
+| Home | Japanese / Dark | Round entry point, one-tap AI diagnosis, summary cards, and native bottom navigation |
 | Courses | Japanese / Dark | Curated public GOLFZON catalog and search controls |
 | Scorecard | Japanese / Dark | Standard template label and unset score presentation |
 | Scorecard | English / Light | System language, appearance, and status bar adaptation |
-| AI Swing Coach | Japanese / Dark | Cloudflare configuration state and coaching flow |
+| AI Swing Coach | Japanese / Dark | Gemini configuration state and video diagnosis flow |
 | Apple Watch | Japanese / Dark | Waiting state for an iPhone round |
 
 ## Core iPhone experience

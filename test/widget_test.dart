@@ -22,6 +22,37 @@ void main() {
     expect(Theme.of(logoContext).brightness, Brightness.light);
   });
 
+  testWidgets('exposes AI from the tab bar and home dashboard', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(1000, 1800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(const BlackShellGolfApp());
+    await tester.pump();
+
+    await tester.tap(find.byKey(const ValueKey('aiTabButton')));
+    await tester.pump();
+
+    expect(find.text('AI Swing Coach'), findsOneWidget);
+    expect(find.text('Video diagnosis'), findsOneWidget);
+    expect(find.text('Gemini AI configured'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('homeTabButton')));
+    await tester.pump();
+
+    final homeAiAction = find.byKey(const Key('shotAnalysisButton'));
+    await tester.ensureVisible(homeAiAction);
+    await tester.tap(homeAiAction);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.text('Shot Analysis'), findsOneWidget);
+    expect(find.byKey(const ValueKey('shotAnalysisSetup')), findsOneWidget);
+  });
+
   testWidgets('creates a room and starts a scorecard', (
     WidgetTester tester,
   ) async {
